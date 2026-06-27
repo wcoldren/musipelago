@@ -195,6 +195,70 @@
         BoxLayout:
             orientation: 'horizontal'
             size_hint_y: None
+            height: '32dp'
+            spacing: '8dp'
+
+            CheckBox:
+                id: meta_enable
+                active: False
+                size_hint_x: None
+                width: '40dp'
+
+            Label:
+                text: 'Group tracks into randomized meta-albums'
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.size
+
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_y: None
+            height: '40dp'
+            spacing: '8dp'
+            disabled: not meta_enable.active
+            opacity: 1 if meta_enable.active else 0.4
+
+            Spinner:
+                id: meta_mode
+                text: 'N packs'
+                values: ['N packs', 'Tracks per pack']
+                size_hint_x: 0.45
+
+            Label:
+                text: 'Count:'
+                size_hint_x: None
+                width: '50dp'
+                halign: 'right'
+                valign: 'middle'
+                text_size: self.size
+
+            TextInput:
+                id: meta_count
+                text: '4'
+                input_filter: 'int'
+                multiline: False
+                write_tab: False
+                size_hint_x: 0.2
+
+            Label:
+                text: 'Seed:'
+                size_hint_x: None
+                width: '50dp'
+                halign: 'right'
+                valign: 'middle'
+                text_size: self.size
+
+            TextInput:
+                id: meta_seed
+                hint_text: 'optional'
+                input_filter: 'int'
+                multiline: False
+                write_tab: False
+                size_hint_x: 0.25
+
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_y: None
             height: '44dp'
             spacing: '10dp'
 
