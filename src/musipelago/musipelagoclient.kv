@@ -252,6 +252,8 @@
             text: root.text_line_1
             font_size: '18sp'
             text_size: self.width, None
+            shorten: True
+            shorten_from: 'right'
             halign: 'left'
             valign: 'middle'
             color: (0.2, 1, 0.2, 1) if root.is_finished or root.all_tracks_finished else (0.99, 0.72, 0.07, 1) if root.has_hint else (1, 1, 1, 1)
@@ -260,6 +262,8 @@
             text: root.text_line_2
             font_size: '14sp'
             text_size: self.width, None
+            shorten: True
+            shorten_from: 'right'
             halign: 'left'
             valign: 'middle'
             
@@ -268,6 +272,8 @@
             font_size: '12sp'
             color: 0.8, 0.8, 0.8, 1
             text_size: self.width, None
+            shorten: True
+            shorten_from: 'right'
             halign: 'left'
             valign: 'middle'
 
@@ -276,6 +282,8 @@
             font_size: '12sp'
             color: 0.8, 0.8, 0.8, 1
             text_size: self.width, None
+            shorten: True
+            shorten_from: 'right'
             halign: 'left'
             valign: 'middle'
     
