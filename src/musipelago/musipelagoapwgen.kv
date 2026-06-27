@@ -205,3 +205,47 @@
             Button:
                 text: 'Generate'
                 on_release: root.on_popup_generate(apworld_name_input.text)
+
+<TrackSelectionPopup>:
+    title: "Select tracks"
+    size_hint: 0.8, 0.8
+    auto_dismiss: False
+
+    BoxLayout:
+        orientation: 'vertical'
+        padding: '10dp'
+        spacing: '10dp'
+
+        Label:
+            text: 'Uncheck tracks to exclude them from this album. Unchecking everything cancels the add.'
+            font_size: '12sp'
+            color: 0.8, 0.8, 0.8, 1
+            size_hint_y: None
+            height: self.texture_size[1]
+            text_size: self.width, None
+            valign: 'top'
+            halign: 'left'
+
+        ScrollView:
+            do_scroll_x: False
+
+            BoxLayout:
+                id: track_box
+                orientation: 'vertical'
+                size_hint_y: None
+                height: self.minimum_height
+                spacing: '2dp'
+
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_y: None
+            height: '44dp'
+            spacing: '10dp'
+
+            Button:
+                text: 'Cancel'
+                on_release: root.on_cancel()
+
+            Button:
+                text: 'OK'
+                on_release: root.on_ok()

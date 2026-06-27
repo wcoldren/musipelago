@@ -52,6 +52,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.popup import Popup
+from kivy.uix.checkbox import CheckBox
 from kivy.clock import Clock
 from kivy.uix.dropdown import DropDown
 from kivy.uix.image import Image
@@ -569,23 +570,116 @@ class CustomListItem(BoxLayout):
         list_container = app.root.ids.list_container
         
         # This will trigger the on_apworld_data binding
-        list_container.add_apworld_item(album_data) 
+        list_container.add_apworld_item(album_data)
+
+class TrackSelectionPopup(Popup):
+    """
+    Add-time per-track curation. Shows a checklist of an album's tracks so the
+    user can uncheck bonus/live cuts before the album enters the APWorld list.
+
+    Uses a plain ScrollView + BoxLayout (NOT a RecycleView) on purpose: checkbox
+    state lives in the row widgets themselves, and RecycleView recycles those
+    widgets, which would scramble the visible ticks on scroll. Track lists are
+    small, so a non-recycling list is fine.
+    """
+    def __init__(self, album: GenericAlbum, on_resolve, **kwargs):
+        super().__init__(**kwargs)
+        self.album = album
+        self.on_resolve = on_resolve  # called as on_resolve(album, states_or_None)
+        self._rows = []               # list of (CheckBox, GenericTrack)
+        self.title = f"Select tracks — {album.title}"
+        # ids aren't populated until the kv rule is applied; build on next frame.
+        Clock.schedule_once(self._populate)
+
+    def _populate(self, *_):
+        box = self.ids.track_box
+        box.clear_widgets()
+        self._rows = []
+        for track in self.album.tracks:
+            row = BoxLayout(orientation='horizontal', size_hint_y=None,
+                            height=dp(32), spacing=dp(8))
+            checkbox = CheckBox(active=True, size_hint_x=None, width=dp(40))
+            secs = max(0, int((track.duration_ms or 0) / 1000))
+            duration = f"{secs // 60}:{secs % 60:02d}"
+            label = Label(text=f"{track.title}  ({duration})", halign='left',
+                          valign='middle')
+            label.bind(size=lambda lbl, *_: setattr(lbl, 'text_size', lbl.size))
+            row.add_widget(checkbox)
+            row.add_widget(label)
+            box.add_widget(row)
+            self._rows.append((checkbox, track))
+
+    def on_ok(self):
+        states = [checkbox.active for checkbox, _ in self._rows]
+        album, resolve = self.album, self.on_resolve
+        self.dismiss()
+        resolve(album, states)
+
+    def on_cancel(self):
+        album, resolve = self.album, self.on_resolve
+        self.dismiss()
+        resolve(album, None)
 
 class ListContainer(BoxLayout):
     list_one_data = ListProperty()  # Visual data for search list
     list_two_data = ListProperty()  # Visual data for APWorld list
-    
+
     # This is the "source of truth" list, holding the full generic data
     apworld_data = ListProperty()   # List of GenericAlbum objects
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Per-track selection popups are shown one at a time, so that bulk adds
+        # (e.g. "add all artist albums") don't stack N modals on top of each other.
+        self._selection_queue = []
+        self._selection_active = False
+
     def add_apworld_item(self, album_data: GenericAlbum):
-        # Check for duplicates
-        for item in self.apworld_data:
-            if item.uri == album_data.uri:
-                Logger.info(f"APWorld: Item {album_data.title} already in list. Skipping.")
-                App.get_running_app().root.status_text = f"'{album_data.title}' is already in the list."
-                return
-        
+        # Check for duplicates against the committed list AND anything still
+        # waiting in the track-selection queue.
+        if any(item.uri == album_data.uri for item in self.apworld_data) \
+                or any(a.uri == album_data.uri for a in self._selection_queue):
+            Logger.info(f"APWorld: Item {album_data.title} already in list. Skipping.")
+            App.get_running_app().root.status_text = f"'{album_data.title}' is already in the list."
+            return
+
+        # Single-track albums have nothing to curate; add directly.
+        if len(album_data.tracks) <= 1:
+            self._finalize_add(album_data)
+            return
+
+        # Otherwise queue a per-track selection popup.
+        self._selection_queue.append(album_data)
+        if not self._selection_active:
+            self._show_next_selection()
+
+    def _show_next_selection(self):
+        if not self._selection_queue:
+            self._selection_active = False
+            return
+        self._selection_active = True
+        album = self._selection_queue.pop(0)
+        TrackSelectionPopup(album=album, on_resolve=self._on_selection_resolve).open()
+
+    def _on_selection_resolve(self, album: GenericAlbum, states):
+        # states is None on cancel; otherwise a list of per-track booleans.
+        if states is not None:
+            selected = [t for t, checked in zip(album.tracks, states) if checked]
+            if selected:  # unchecking everything is treated as a cancel
+                album.tracks = selected
+                album.total_tracks = len(selected)
+                self._finalize_add(album)
+        # Advance the queue regardless of OK/cancel.
+        self._show_next_selection()
+
+    def _finalize_add(self, album_data: GenericAlbum):
+        # Final dedup guard: an album popped into an in-flight selection popup is
+        # in neither apworld_data nor the queue, so re-check by uri here before
+        # committing to avoid duplicate location IDs in the generated world.
+        if any(item.uri == album_data.uri for item in self.apworld_data):
+            Logger.info(f"APWorld: Item {album_data.title} already in list. Skipping.")
+            App.get_running_app().root.status_text = f"'{album_data.title}' is already in the list."
+            return
         # This append() triggers on_apworld_data
         self.apworld_data.append(album_data)
         App.get_running_app().root.status_text = f"Added '{album_data.title}' to APWorld."
