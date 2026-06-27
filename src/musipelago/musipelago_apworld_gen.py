@@ -2,6 +2,7 @@
 import os, sys, json, zipfile, ctypes
 import requests, threading, hashlib, shutil
 import dataclasses
+import random
 
 from musipelago.utils import resource_path
 from kivy.logger import Logger
@@ -266,6 +267,63 @@ class LoginPopup(Popup):
             custom_popup.open()
             self.dismiss()
 
+def _chunk(tracks, mode, count):
+    """Split `tracks` into groups. mode='per_pack' -> groups of ~count tracks;
+    mode='packs' -> `count` near-equal groups (never empty when count <= len)."""
+    count = max(1, int(count))
+    if mode == 'per_pack':
+        return [tracks[i:i + count] for i in range(0, len(tracks), count)]
+    # 'packs': split into `count` near-equal groups, capped so none are empty.
+    n = min(count, len(tracks)) or 1
+    base, rem = divmod(len(tracks), n)
+    groups, start = [], 0
+    for i in range(n):
+        size = base + (1 if i < rem else 0)
+        groups.append(tracks[start:start + size])
+        start += size
+    return groups
+
+
+def build_meta_albums(albums, *, mode, count, seed=None):
+    """Regroup the (already curated) tracks across `albums` into synthetic
+    "Mixtape" meta-albums at generate time. This is a pure function of its
+    inputs: it returns a fresh list of GenericAlbum objects and never mutates
+    the source albums, so each generation can re-roll a different layout.
+
+    Tracks are partitioned (each source track lands in exactly one meta-album),
+    never sampled with replacement, so no duplicate location IDs are produced.
+    Each meta-album gets a unique synthetic artist/title/uri (item, region and
+    state.has rules key off "[artist] [title]"), and a per-pack uniqueness pass
+    suffixes duplicate track titles so two same-named tracks in one pack don't
+    collide into the same location name. Real track uris are preserved, so the
+    client plays the correct underlying files regardless of grouping.
+    """
+    rng = random.Random(seed) if seed is not None else random.Random()
+    tracks = [t for album in albums for t in album.tracks]
+    if not tracks:
+        return albums
+    rng.shuffle(tracks)
+    groups = _chunk(tracks, mode, count)
+    service = albums[0].service if albums else 'local'
+    metas = []
+    for i, group in enumerate(groups, start=1):
+        title = f"Mixtape {i:02d}"
+        seen, fixed = set(), []
+        for track in group:
+            name, n = track.title, 2
+            while (track.artist, name) in seen:   # within-pack title collision guard
+                name = f"{track.title} ({n})"
+                n += 1
+            seen.add((track.artist, name))
+            # keep real uri/artist/duration/service; only retitle for uniqueness
+            fixed.append(dataclasses.replace(track, title=name, album_title=title))
+        metas.append(GenericAlbum(
+            uri=f"meta:{i:02d}", title=title, artist="Musipelago",
+            image_url="", total_tracks=len(fixed), album_type="Mixtape",
+            service=service, tracks=fixed))
+    return metas
+
+
 class GeneratePopup(Popup):
     apworld_data = ObjectProperty(None) # This will be a list of GenericAlbum
 
@@ -278,12 +336,29 @@ class GeneratePopup(Popup):
         if not apworld_name.strip():
             app.root.status_text = "Error: APWorld name cannot be empty."
             return
-        
+
+        meta_config = self._read_meta_config()
+
         # Run file generation in a thread to avoid blocking UI
-        threading.Thread(target=self.generate_files, args=(apworld_name,)).start()
+        threading.Thread(target=self.generate_files, args=(apworld_name, meta_config)).start()
         self.dismiss()
 
-    def generate_files(self, apworld_name):
+    def _read_meta_config(self):
+        """Read the meta-album controls from the popup. Returns a dict; when
+        disabled (or controls absent) the generator uses the real albums."""
+        ids = self.ids
+        if 'meta_enable' not in ids or not ids.meta_enable.active:
+            return {'enabled': False}
+        mode = 'packs' if ids.meta_mode.text == 'N packs' else 'per_pack'
+        try:
+            count = int(ids.meta_count.text)
+        except (ValueError, AttributeError):
+            count = 0
+        seed_text = (ids.meta_seed.text or '').strip()
+        seed = int(seed_text) if seed_text else None
+        return {'enabled': True, 'mode': mode, 'count': count, 'seed': seed}
+
+    def generate_files(self, apworld_name, meta_config=None):
         app = App.get_running_app()
         Clock.schedule_once(lambda dt: setattr(app.root, 'status_text', f"Generation started for: {apworld_name}"))
         Logger.info(f"Generate: Button clicked for {apworld_name}")
@@ -313,10 +388,24 @@ class GeneratePopup(Popup):
                 "Types.py.j2", "Regions.py.j2", "Rules.py.j2",
                 "__init__.py.j2", "archipelago.json.j2"
             ]
-            
+
+            # Optionally regroup tracks into randomized meta-albums at generate
+            # time. effective_data drives BOTH the templates and the JSON catalog
+            # so they stay consistent; the UI's real-album list is never mutated.
+            if meta_config and meta_config.get('enabled'):
+                effective_data = build_meta_albums(
+                    self.apworld_data, mode=meta_config['mode'],
+                    count=meta_config['count'], seed=meta_config.get('seed'))
+                Clock.schedule_once(lambda dt: setattr(
+                    app.root, 'status_text',
+                    f"Grouped {sum(len(a.tracks) for a in self.apworld_data)} tracks "
+                    f"into {len(effective_data)} meta-albums."))
+            else:
+                effective_data = self.apworld_data
+
             # The context now uses the generic data models
             context = {
-                'apworld_data': self.apworld_data, # List of GenericAlbum
+                'apworld_data': effective_data, # List of GenericAlbum
                 'apworld_name': apworld_name
             }
 
@@ -335,7 +424,7 @@ class GeneratePopup(Popup):
             
             # 1. Build the "apworld" key (for AP name mapping)
             apworld_content = []
-            for album in self.apworld_data: # album is GenericAlbum
+            for album in effective_data: # album is GenericAlbum
                 album_name_str = f"[{album.artist}] [{album.title}]"
                 ap_safe_name = filter_to_ascii(album_name_str)
                 new_album_obj = {"name": filter_to_ascii(ap_safe_name), "uri": album.uri, "tracks": []}
@@ -357,7 +446,7 @@ class GeneratePopup(Popup):
             if app.backend.client_requires_display_data():
                 Logger.info("Generate: Backend requires display_data. Serializing...")
                 display_data_list = []
-                for album in self.apworld_data:
+                for album in effective_data:
                     album_dict = dataclasses.asdict(album)
                     if 'display_image_url' in album_dict:
                         del album_dict['display_image_url']
