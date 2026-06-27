@@ -1242,7 +1242,12 @@ class MusipelagoClientApp(App):
             on_login_success=self.on_login_success,
             on_login_failure=self.on_login_failure
         )
-        
+
+        # Seed the backend's root from the catalog so a local-files login UI can pre-fill
+        # its directory field (initialize_client still sets it authoritatively after login).
+        if isinstance(backend_data, dict) and backend_data.get('root_directory'):
+            self.backend.root_directory = backend_data['root_directory']
+
         self.archipelago_login_popup.dismiss()
         self.archipelago_login_popup = None
         
