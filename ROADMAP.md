@@ -39,12 +39,13 @@ existing seeds).
 - Hooks: the finish→check path in the backend client hosts; the row/now-playing render.
 - **design choice:** strict gate (must guess to get the check) vs. optional self-quiz overlay.
 
-### A3. Hidden-metadata / "unknown song" mode — learn your library — 🟢🟡 · client (client-side toggle)
-Pure display mask + a **client-side toggle** (a setting, not a per-seed option). Mask `text_line_*`
-and now-playing title/artist with "???" until the track is finished (or guessed in A2). Data stays
-intact; only rendering changes in the RecycleView population (`musipelago_client.py:654–690`) and
-`GenericPlaybackInfo`. Establishes a small **client Settings surface** (`get_settings_ui` returns
-None today) that A2 and the audio selector (C3) reuse.
+### A3. Hidden-metadata / "unknown song" mode — learn your library — 🟢🟡 · client — ✅ **DONE**
+Client-side toggle in a new Settings panel (reached via the existing settings icon, persisted in
+JsonStore). Masks track title/artist + the AP location line as "Unknown" in the list rows and
+now-playing bar until a track is revealed; reveal happens on finish or via a right-click "Reveal"
+peek. Album names stay visible. Real values kept as `raw_*` so playback is unaffected. Established
+the **client Settings surface** that A2/C3 reuse. Shipped on `feat/client-hidden-mode` → `dev`.
+(Follow-up: Subsonic now-playing masking parity.)
 
 - **Synergy:** A2 + A3 together = a music-learning quiz (blind listen → guess → reveal). Strong combo.
 
@@ -111,9 +112,9 @@ Agreed order — reliability is deferred because local play doesn't need auto-re
 jumps up the list once online/multiworld play starts. A2/A3 are client-side toggles (no regen).
 
 0. **B1** — list-row text overflow — ✅ done.
-1. **C4a** — quick cleanups & hygiene (dead code, stray `print()`→`Logger`, drop `plyer` dep,
-   dedupe window-config). The bigger broad-`except` pass is **C4b**, deferred to step 8.
-2. **A3** — hidden-metadata / "unknown song" mode (client toggle; seeds the Settings surface).
+1. **C4a** — quick cleanups & hygiene — ✅ done (dead code, `print()`→`Logger`, dropped `plyer`
+   dep). The window-config dedupe and the broad-`except` pass (**C4b**) remain, deferred to step 8.
+2. **A3** — hidden-metadata / "unknown song" mode — ✅ done (client toggle; built the Settings surface).
 3. **A2** — guess-the-song mode (client toggle; builds on A3).
 4. **A1** — traps (flagship; first item needing world changes + the per-item dispatch hook).
 5. **A4** — generator-side curation for traps/quiz (builds on A1).
