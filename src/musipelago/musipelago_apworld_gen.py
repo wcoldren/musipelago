@@ -23,7 +23,7 @@ try:
         # We still set a minimum size just in case
         Config.set('graphics', 'width', '800')
         Config.set('graphics', 'height', '600')
-        print("Window: Screen too small. Configured to start maximized.")
+        Logger.info("Window: Screen too small. Configured to start maximized.")
     else:
         # Screen is large enough: Configure EXACT SIZE
         Config.set('graphics', 'width', str(target_w))
@@ -31,10 +31,10 @@ try:
         
         # Optional: Force centering (Kivy usually centers by default if size is set here)
         # Config.set('graphics', 'position', 'auto')
-        print(f"Window: Configured to {target_w}x{target_h}.")
+        Logger.info(f"Window: Configured to {target_w}x{target_h}.")
 
 except Exception as e:
-    print(f"Window Config Error: {e}. Using default 1024x768.")
+    Logger.warning(f"Window Config Error: {e}. Using default 1024x768.")
     Config.set('graphics', 'width', '1024')
     Config.set('graphics', 'height', '768')
 Config.set('input', 'mouse', 'mouse,disable_multitouch')
@@ -945,7 +945,7 @@ class RootLayout(BoxLayout):
             Clock.schedule_once(scroll_fix, 0.1)
 
     def on_settings_click(self):
-        print("Settings button clicked!")
+        Logger.debug("Settings button clicked!")
         self.status_text = "Settings panel opened (not really)."
 
     def on_generate_click(self):

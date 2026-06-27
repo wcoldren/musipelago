@@ -344,43 +344,6 @@ class LocalFilesHostUI(AbstractPluginHost):
 
     # --- NEW ALBUM CREATION FLOW ---
 
-    # --- Plyer implementation ---
-    # def start_create_album_flow(self):
-    #     """
-    #     Starts the process by opening the plyer directory chooser.
-    #     """
-    #     if not filechooser:
-    #         self.root_layout.status_text = "Error: 'plyer' library is not installed."
-    #         return
-            
-    #     Logger.info("LocalFiles: Opening directory chooser...")
-    #     self.root_layout.status_text = "Opening directory chooser..."
-        
-    #     # Get the root directory from the backend
-    #     start_path = self.backend.root_directory
-    #     if not start_path or not os.path.isdir(start_path):
-    #         start_path = os.path.expanduser("~") # Fallback to home dir
-            
-    #     filechooser.open_file(
-    #         on_selection=self.on_album_dir_selected,
-    #         path=start_path
-    #     )
-
-    # def on_album_dir_selected(self, selection: list):
-    #     """
-    #     Callback from plyer after a directory is chosen.
-    #     """
-    #     if not selection or not selection[0]:
-    #         self.root_layout.status_text = "Album creation cancelled."
-    #         return
-            
-    #     chosen_dir = selection[0]
-    #     self.root_layout.status_text = f"Scanning folder: {os.path.basename(chosen_dir)}..."
-        
-    #     # Run the scan in a background thread
-    #     threading.Thread(target=self._scan_dir_thread, args=(chosen_dir,)).start()
-
-    # --- Kivy Filechooser Popup implementation ---
     def start_create_album_flow(self):
         """
         Starts the process using our custom DirectoryPickerPopup.

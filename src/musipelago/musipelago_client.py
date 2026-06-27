@@ -22,7 +22,7 @@ try:
         # We still set a minimum size just in case
         Config.set('graphics', 'width', '800')
         Config.set('graphics', 'height', '600')
-        print("Window: Screen too small. Configured to start maximized.")
+        Logger.info("Window: Screen too small. Configured to start maximized.")
     else:
         # Screen is large enough: Configure EXACT SIZE
         Config.set('graphics', 'width', str(target_w))
@@ -30,10 +30,10 @@ try:
         
         # Optional: Force centering (Kivy usually centers by default if size is set here)
         # Config.set('graphics', 'position', 'auto')
-        print(f"Window: Configured to {target_w}x{target_h}.")
+        Logger.info(f"Window: Configured to {target_w}x{target_h}.")
 
 except Exception as e:
-    print(f"Window Config Error: {e}. Using default 1024x768.")
+    Logger.warning(f"Window Config Error: {e}. Using default 1024x768.")
     Config.set('graphics', 'width', '1024')
     Config.set('graphics', 'height', '768')
 Config.set('input', 'mouse', 'mouse,disable_multitouch')
@@ -905,32 +905,7 @@ class ArchipelagoClient:
                         Logger.warning(f"AP: Received item '{item_name}' but its URI '{uri}' is not in the album cache.")
         
         self.check_victory()
-        # victory_item_name = "Album finished!"
-        # victory_item_id = None
-        
-        # # Find the ID from the map
-        # # (Optimization: In a real app, cache this ID so we don't loop every time)
-        # for i_id, i_name in self.id_to_item_name.items():
-        #     if i_name == victory_item_name:
-        #         victory_item_id = i_id
-        #         break
-        
-        # if victory_item_id:
-        #     # Count how many times we have received this specific item ID
-        #     # We look at the raw received_items list, which contains duplicates
-        #     victory_count = sum(1 for item in self.received_items if item.get('item') == victory_item_id)
-            
-        #     total_albums = len(self.app.ordered_album_uris)
-            
-        #     # Logger.debug(f"AP: Victory Check: {victory_count}/{total_albums} albums finished.")
 
-        #     if total_albums > 0 and victory_count >= total_albums:
-        #         if not self.victory_reported:
-        #             Logger.info(f"AP: VICTORY! All {total_albums} albums finished.")
-        #             self.app.show_toast("VICTORY! All albums finished!")
-        #             self.send_status_update(30) # ClientStatus.GOAL
-        #             self.victory_reported = True
-    
     def check_victory(self):
         """
         Checks if the victory condition is met based on the selected mode.
@@ -989,7 +964,7 @@ class ArchipelagoClient:
         try:
             packet = {"cmd": "StatusUpdate", "status": status_code}
             message_json = json.dumps([packet])
-            print(f">>> SENDING: {message_json}"); await self.ws.send(message_json)
+            Logger.debug(f">>> SENDING: {message_json}"); await self.ws.send(message_json)
             Logger.info(f"AP: Sent StatusUpdate: {status_code}")
         except Exception as e: Logger.error(f"AP: Could not send StatusUpdate: {e}")
 
@@ -1001,7 +976,7 @@ class ArchipelagoClient:
     def on_datapackage_received(self):
         self.received_datapackage = True; self.check_game_ready()
     async def handle_message_list(self, message):
-        print(f"<<< RECEIVED: {message}")
+        Logger.debug(f"<<< RECEIVED: {message}")
         try: packets = json.loads(message)
         except json.JSONDecodeError: Logger.error(f"AP: Could not decode server message: {message}"); return
         for packet in packets:
@@ -1124,13 +1099,13 @@ class ArchipelagoClient:
         try:
             connect_packet = {"cmd": "Connect", "game": self.game_name, "items_handling": 7, "name": self.name, "password": self.password, "slot_data": True, "tags": [], "version": {"class": "Version", "build": 4, "major": 0, "minor": 6}, "uuid": self.app.client_uuid}
             message_json = json.dumps([connect_packet])
-            print(f">>> SENDING: {message_json}"); await self.ws.send(message_json)
+            Logger.debug(f">>> SENDING: {message_json}"); await self.ws.send(message_json)
         except Exception as e: self.report_error(f"Failed to send connect packet: {e}")
     async def send_data_package_request(self, games_list):
         try:
             package_request = {"cmd": "GetDataPackage", "games": games_list}
             message_json = json.dumps([package_request])
-            print(f">>> SENDING: {message_json}"); await self.ws.send(message_json)
+            Logger.debug(f">>> SENDING: {message_json}"); await self.ws.send(message_json)
         except Exception as e: self.report_error(f"Failed to send data request: {e}")
     def send_location_check(self, location_id):
         if self.ws and self.loop: asyncio.run_coroutine_threadsafe(self._async_send_location_check(location_id), self.loop)
@@ -1138,7 +1113,7 @@ class ArchipelagoClient:
         try:
             packet = {"cmd": "LocationChecks", "locations": [location_id]}
             message_json = json.dumps([packet])
-            print(f">>> SENDING: {message_json}"); await self.ws.send(message_json)
+            Logger.debug(f">>> SENDING: {message_json}"); await self.ws.send(message_json)
         except Exception as e: Logger.error(f"AP: Could not send LocationChecks: {e}")
     def send_chat_message(self, text):
         if self.ws and self.loop: asyncio.run_coroutine_threadsafe(self._async_send_say(text), self.loop)
@@ -1146,7 +1121,7 @@ class ArchipelagoClient:
         try:
             packet = {"cmd": "Say", "text": text}
             message_json = json.dumps([packet])
-            print(f">>> SENDING: {message_json}"); await self.ws.send(message_json)
+            Logger.debug(f">>> SENDING: {message_json}"); await self.ws.send(message_json)
         except Exception as e: Logger.error(f"AP: Could not send Say packet: {e}")
     def report_error(self, error_message):
         if self.error_reported: return

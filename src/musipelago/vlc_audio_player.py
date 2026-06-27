@@ -17,7 +17,7 @@ else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 VLC_ENGINE_PATH = os.path.join(BASE_DIR, 'vlc_engine')
-print(VLC_ENGINE_PATH)
+Logger.debug(f"AudioPlayer: VLC engine path: {VLC_ENGINE_PATH}")
 VLC_AVAILABLE = False
 
 # 2. Check if we have a bundled engine
