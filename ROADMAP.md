@@ -28,9 +28,10 @@ supported. The blocker is that the **client has no per-item dispatch** — `_syn
 - **design choice:** trap songs = random from the library at trigger time (simplest) **or** a
   curated "trap pool" chosen at generate time (see A4). Recommend starting random, add curation later.
 
-### A2. Guess-the-song mode — "name the album / artist / song" — 🟡 · client (+data flag) · upstream?
+### A2. Guess-the-song mode — "name the album / artist / song" — 🟡 · client (client-side toggle) · upstream?
 All metadata is already client-side (`GenericTrack.{title,artist,album_title}`), so this is
-mostly client UI + one option flag `GuessMode`.
+client UI + a **client-side toggle** (a setting, not a per-seed option — flip it anytime, works on
+existing seeds).
 
 - On track finish (`on_playback_finished` → `send_location_check`), gate the check behind a prompt:
   type artist/title/album, fuzzy-match (`difflib`) against known metadata; correct → the check
@@ -38,10 +39,12 @@ mostly client UI + one option flag `GuessMode`.
 - Hooks: the finish→check path in the backend client hosts; the row/now-playing render.
 - **design choice:** strict gate (must guess to get the check) vs. optional self-quiz overlay.
 
-### A3. Hidden-metadata / "unknown song" mode — learn your library — 🟢🟡 · client (+flag)
-Pure display mask + option `HiddenMetadata`. Mask `text_line_*` and now-playing title/artist with
-"???" until the track is finished (or guessed in A2). Data stays intact; only rendering changes
-in the RecycleView population (`musipelago_client.py:654–690`) and `GenericPlaybackInfo`.
+### A3. Hidden-metadata / "unknown song" mode — learn your library — 🟢🟡 · client (client-side toggle)
+Pure display mask + a **client-side toggle** (a setting, not a per-seed option). Mask `text_line_*`
+and now-playing title/artist with "???" until the track is finished (or guessed in A2). Data stays
+intact; only rendering changes in the RecycleView population (`musipelago_client.py:654–690`) and
+`GenericPlaybackInfo`. Establishes a small **client Settings surface** (`get_settings_ui` returns
+None today) that A2 and the audio selector (C3) reuse.
 
 - **Synergy:** A2 + A3 together = a music-learning quiz (blind listen → guess → reveal). Strong combo.
 
@@ -51,13 +54,11 @@ catalog. Builds on the existing per-track selection / meta-album curation patter
 
 ## B. UI / UX
 
-### B1. Fix long-title text overflow — 🟢 · client · upstream? — **recommended first**
-The `CustomListItem` labels in `musipelagoclient.kv` (~lines 251–280) set `text_size: self.width, None`
-with **no `shorten`/`max_lines`**, so long titles wrap and overflow the fixed 100dp rows. The
-now-playing widget already does it right (`shorten: True; shorten_from: 'right'`).
-
-- Add `shorten: True; shorten_from: 'right'` (or `max_lines: 1`) to the four `text_line_*` Labels;
-  optionally bump `default_size: None, '100dp'` (lines 209/229) for breathing room.
+### B1. Fix long-title text overflow — 🟢 · client · upstream? — ✅ **DONE**
+The `CustomListItem` labels in `musipelagoclient.kv` lacked `shorten`, so long titles wrapped and
+overflowed the fixed 100dp rows. Added `shorten: True; shorten_from: 'right'` to the four
+`text_line_*` Labels (matching the now-playing widget) for single-line ellipsis. Shipped on
+`fix/client-list-text-overflow` → `dev`.
 
 ### B2. Visual refresh + theming — 🟡 · client · upstream?
 ~20 hardcoded RGBA values scattered through `musipelagoclient.kv` with no central theme. Extract a
@@ -104,13 +105,27 @@ Locks in the curation features + the macOS picker/ws fixes against regressions.
 
 ---
 
-## Suggested sequencing
+## Execution order (features-first)
 
-1. **B1** (overflow) + **C1** (reconnect) — cheap/high-impact, makes real play pleasant & reliable.
-2. **A3 + A2** (hidden + guess) — the music-learning quiz cluster; client-mostly.
-3. **A1** (traps) — flagship, needs the per-item dispatch hook (reusable by A4).
-4. **B2** (theming) + **C3/C4** (audio fallback, cleanups) — polish & hygiene.
-5. **C5** (tests/CI) — lock it all in. C2 threaded in alongside C1.
+Agreed order — reliability is deferred because local play doesn't need auto-reconnect yet; it
+jumps up the list once online/multiworld play starts. A2/A3 are client-side toggles (no regen).
+
+0. **B1** — list-row text overflow — ✅ done.
+1. **C4a** — quick cleanups & hygiene (dead code, stray `print()`→`Logger`, drop `plyer` dep,
+   dedupe window-config). The bigger broad-`except` pass is **C4b**, deferred to step 8.
+2. **A3** — hidden-metadata / "unknown song" mode (client toggle; seeds the Settings surface).
+3. **A2** — guess-the-song mode (client toggle; builds on A3).
+4. **A1** — traps (flagship; first item needing world changes + the per-item dispatch hook).
+5. **A4** — generator-side curation for traps/quiz (builds on A1).
+6. **B2** — visual refresh + theming.
+7. **C3** — audio backend fallback factory (selector lives in A3's Settings surface).
+8. **C1 + C2 + C4b** — reliability phase: auto-reconnect, thread-safety, broad-`except` hardening.
+   Promote this the moment online/multiworld play begins.
+9. **C5** — tests + CI (seed from the existing verification harness).
+
+**Backlog (opportunistic):** D1–D4 above; D3 is partly delivered by A3's Settings surface.
+**Dependencies:** A3 → A2 (reveal plumbing) and A3 → Settings surface (reused by C3, B2);
+A1 → A4; C4b travels with C1/C2.
 
 ## Key code references (for implementers)
 
