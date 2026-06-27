@@ -760,8 +760,10 @@ class RootLayout(BoxLayout):
 
 # --- ArchipelagoClient ---
 class ArchipelagoClient:
-    def __init__(self, app, uri, name, password, game_name, cache_dir, experimental_victory=False):
+    def __init__(self, app, uri, name, password, game_name, cache_dir, experimental_victory=False,
+                 allow_ws_fallback=False):
         self.app = app; self.uri = uri; self.name = name; self.password = password
+        self.allow_ws_fallback = allow_ws_fallback
         self.game_name = game_name; self.cache_dir = cache_dir
         self.ws = None; self.handshake_complete = False; self.error_reported = False
         self.received_connected = False; self.received_datapackage = False
@@ -786,20 +788,37 @@ class ArchipelagoClient:
         finally:
             if self.loop: self.loop.close()
             Logger.info("AP: Websocket thread finished.")
+    def _candidate_uris(self):
+        # When the user gave no explicit scheme we default to wss:// but also try ws://, so a
+        # plaintext local MultiServer (no TLS cert) works without the user knowing the scheme.
+        uris = [self.uri]
+        if self.allow_ws_fallback and self.uri.startswith("wss://"):
+            uris.append("ws://" + self.uri[len("wss://"):])
+        return uris
+
     async def run(self):
         Logger.info(f"AP: Async task started. Connecting to {self.uri}...")
-        ssl_context = None
-        if self.uri.startswith("wss://"): ssl_context = ssl.create_default_context()
-        try:
-            async with websockets.connect(self.uri, ssl=ssl_context, max_size=None) as ws:
-                self.ws = ws
-                Logger.info("AP: Connection open. Waiting for initial packet...")
-                Clock.schedule_once(lambda dt: self.app.root.set_status("Connected! Waiting for server..."))
-                async for message in ws:
-                    await self.handle_message_list(message)
-        except Exception as e:
-            Logger.error(f"AP: Websocket loop error: {e}")
-            self.report_error(f"{e}")
+        candidates = self._candidate_uris()
+        for idx, uri in enumerate(candidates):
+            ssl_context = ssl.create_default_context() if uri.startswith("wss://") else None
+            connected = False
+            try:
+                async with websockets.connect(uri, ssl=ssl_context, max_size=None) as ws:
+                    connected = True
+                    self.ws = ws; self.uri = uri
+                    Logger.info(f"AP: Connection open ({uri}). Waiting for initial packet...")
+                    Clock.schedule_once(lambda dt: self.app.root.set_status("Connected! Waiting for server..."))
+                    async for message in ws:
+                        await self.handle_message_list(message)
+                    return
+            except Exception as e:
+                # Fall back to the next scheme only if the *handshake* failed (never mid-session).
+                if not connected and idx < len(candidates) - 1:
+                    Logger.warning(f"AP: {uri} failed ({e}); retrying with ws://")
+                    continue
+                Logger.error(f"AP: Websocket loop error: {e}")
+                self.report_error(f"{e}")
+                return
     
     def _sync_owned_items(self):
         """
@@ -1435,13 +1454,17 @@ class MusipelagoClientApp(App):
         except Exception as e:
             Logger.error(f"Cache: Failed to save settings: {e}")
         
-        if not address.startswith(("ws://", "wss://")):
+        # Default a scheme-less address to wss://, but remember it was auto-chosen so the client
+        # can fall back to ws:// (e.g. a local MultiServer with no TLS cert).
+        scheme_explicit = address.startswith(("ws://", "wss://"))
+        if not scheme_explicit:
             address = f"wss://{address}"
         base_name = os.path.basename(json_path)
         game_name, _ = os.path.splitext(base_name)
         Logger.info(f"Connecting to AP server at {address} as {name} for game {game_name}...")
         self.ap_client = ArchipelagoClient(self, address, name, password, game_name, self.cache_dir,
-                                           experimental_victory=self.use_experimental_victory)
+                                           experimental_victory=self.use_experimental_victory,
+                                           allow_ws_fallback=not scheme_explicit)
         threading.Thread(target=self.ap_client.start_client_loop, daemon=True).start()
 
     def on_connection_success(self, *args):
