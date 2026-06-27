@@ -51,6 +51,7 @@ from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.button import Button
+from kivy.uix.togglebutton import ToggleButton
 from kivy.uix.popup import Popup
 from kivy.clock import Clock
 from kivy.uix.dropdown import DropDown
@@ -620,14 +621,23 @@ class RootLayout(BoxLayout):
 
         panel = BoxLayout(orientation='vertical', spacing='10dp', padding='10dp')
 
-        # App-level: hidden / "unknown song" practice mode.
-        hidden_row = BoxLayout(orientation='horizontal', size_hint_y=None, height='40dp', spacing='10dp')
-        hidden_cb = CheckBox(active=app.hidden_metadata, size_hint_x=None, width='40dp')
-        hidden_cb.bind(active=lambda cb, val: self.set_hidden_metadata(val))
-        hidden_row.add_widget(hidden_cb)
-        hidden_row.add_widget(Label(text="Hidden mode (listen to 'unknown' songs to learn them)",
-                                    halign='left', valign='middle'))
-        panel.add_widget(hidden_row)
+        # App-level: hidden / "unknown song" practice mode. Use a ToggleButton (always renders a
+        # visible, clearly clickable control) rather than a bare CheckBox.
+        hidden_btn = ToggleButton(
+            text=f"Hidden mode: {'ON' if app.hidden_metadata else 'OFF'}",
+            state='down' if app.hidden_metadata else 'normal',
+            size_hint_y=None, height='48dp')
+
+        def _on_hidden_toggle(btn):
+            active = btn.state == 'down'
+            btn.text = f"Hidden mode: {'ON' if active else 'OFF'}"
+            self.set_hidden_metadata(active)
+
+        hidden_btn.bind(on_release=_on_hidden_toggle)
+        panel.add_widget(hidden_btn)
+        panel.add_widget(Label(
+            text="Listen to 'unknown' songs to learn them — track names stay hidden until you finish (or Reveal) a track.",
+            size_hint_y=None, height='30dp', halign='left', valign='middle'))
 
         # Plugin-specific settings, if the backend provides any.
         plugin_ui = app.client_host_ui.get_settings_ui()
@@ -648,6 +658,7 @@ class RootLayout(BoxLayout):
         """Toggle hidden mode, persist it, and re-render the visible lists."""
         app = App.get_running_app()
         active = bool(active)
+        Logger.info(f"UI: Hidden mode toggled -> {active}")
         if active == app.hidden_metadata:
             return
         app.hidden_metadata = active
