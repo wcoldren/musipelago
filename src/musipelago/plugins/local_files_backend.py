@@ -15,13 +15,6 @@ from kivy.uix.progressbar import ProgressBar
 from kivy.uix.filechooser import FileChooserListView
 from kivy.app import App
 
-# --- Plyer import ---
-try:
-    from plyer import filechooser
-except ImportError:
-    Logger.warning("LocalFilesBackend: 'plyer' not installed.")
-    filechooser = None
-
 # --- Mutagen import for ID3 tags ---
 try:
     import mutagen
@@ -146,7 +139,7 @@ class LocalFilesLoginUI(BoxLayout):
     """
     This is the Kivy widget that the main app will show in a popup.
     """
-    def __init__(self, **kwargs):
+    def __init__(self, initial_path=None, **kwargs):
         super().__init__(**kwargs)
         self.orientation = 'vertical'
         self.spacing = '10dp'
@@ -166,15 +159,17 @@ class LocalFilesLoginUI(BoxLayout):
             height=dp(30)
         ))
         
-        # Text Input to display the path
+        # Text Input to display the path. Pre-filled from the catalog's root_directory
+        # so the user can just click Login (the picker still lets them change it).
         self.path_input = TextInput(
+            text=(initial_path if initial_path and os.path.isdir(initial_path) else ''),
             hint_text='No directory selected...',
             readonly=True,
             size_hint_y=None,
             height=dp(40)
         )
         self.add_widget(self.path_input)
-        
+
         # Button to open the dialog
         self.choose_btn = Button(
             text="Choose Directory...",
@@ -183,27 +178,25 @@ class LocalFilesLoginUI(BoxLayout):
         )
         self.choose_btn.bind(on_release=self.open_dialog)
         self.add_widget(self.choose_btn)
-        
-        if filechooser is None:
-            self.choose_btn.text = "'plyer' is not installed"
-            self.choose_btn.disabled = True
 
     def open_dialog(self, *args):
         """
-        Uses plyer to open the native directory chooser.
+        Open a pure-Kivy directory chooser (no plyer/pyobjus). Mirrors the generator's
+        DirectoryPickerPopup usage in LocalFilesHostUI.
         """
-        if filechooser:
-            filechooser.choose_dir(on_selection=self.on_selection_callback)
-            
-    def on_selection_callback(self, selection: list):
-        """
-        Callback fired by plyer after the user selects a directory.
-        """
-        if selection and isinstance(selection, list):
-            self.path_input.text = selection[0]
-            Logger.info(f"LocalFilesLoginUI: Path selected: {selection[0]}")
-        else:
-            Logger.info("LocalFilesLoginUI: No path selected.")
+        start_path = self.path_input.text
+        if not start_path or not os.path.isdir(start_path):
+            start_path = os.path.expanduser("~")
+        DirectoryPickerPopup(
+            initial_path=start_path,
+            on_selection=self._on_dir_selected
+        ).open()
+
+    def _on_dir_selected(self, path):
+        """Callback from DirectoryPickerPopup (passes a single path string)."""
+        if path:
+            self.path_input.text = path
+            Logger.info(f"LocalFilesLoginUI: Path selected: {path}")
 
 
 class LocalFilesBackendLogic(AbstractMusicBackend):
@@ -220,7 +213,7 @@ class LocalFilesBackendLogic(AbstractMusicBackend):
         This is the "contract". We return a Kivy widget.
         """
         Logger.info("LocalFilesBackend: Providing custom login UI.")
-        return LocalFilesLoginUI()
+        return LocalFilesLoginUI(initial_path=self.root_directory)
 
     def login(self, login_widget: object = None):
         """
