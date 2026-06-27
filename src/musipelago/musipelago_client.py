@@ -67,7 +67,7 @@ from kivy.uix.image import Image as KivyImage
 from kivy.uix.relativelayout import RelativeLayout # Used for positioning the image within the button
 from kivy.metrics import dp
 from kivy.properties import StringProperty, ListProperty, ObjectProperty, BooleanProperty, NumericProperty
-from plyer import filechooser
+from kivy.uix.filechooser import FileChooserListView
 from kivy.resources import resource_add_path
 from kivy.uix.spinner import Spinner
 
@@ -232,6 +232,51 @@ class LoginPopup(Popup):
             self.dismiss()
 
 
+class GameFilePickerPopup(Popup):
+    """
+    A pure-Kivy popup for picking the Musipelago game .json file.
+
+    Mirrors the generator's DirectoryPickerPopup (in local_files_backend.py): we use
+    Kivy's own FileChooserListView instead of plyer, whose macOS backend needs pyobjus
+    (often missing / unbuildable) and silently fails. Pure Kivy works everywhere and
+    needs no native deps.
+    """
+    def __init__(self, initial_path, on_selection, **kwargs):
+        super().__init__(**kwargs)
+        self.title = "Select Musipelago Game File"
+        self.size_hint = (0.9, 0.9)
+        self.auto_dismiss = False
+        self.on_selection = on_selection
+
+        layout = BoxLayout(orientation='vertical', spacing=10, padding=10)
+
+        # Show directories and .json files only.
+        self.file_chooser = FileChooserListView(
+            path=initial_path,
+            dirselect=False,
+            filters=['*.json']
+        )
+        layout.add_widget(self.file_chooser)
+
+        btn_layout = BoxLayout(size_hint_y=None, height='44dp', spacing=10)
+        cancel_btn = Button(text="Cancel", on_release=self.dismiss)
+        select_btn = Button(text="Select File", on_release=self.select_current)
+        btn_layout.add_widget(cancel_btn)
+        btn_layout.add_widget(select_btn)
+        layout.add_widget(btn_layout)
+
+        self.content = layout
+
+    def select_current(self, *args):
+        # Only act on an actual file selection (dirselect=False, so selection is a file).
+        selection = self.file_chooser.selection
+        if not selection:
+            return
+        path = selection[0]
+        self.dismiss()
+        self.on_selection(path)
+
+
 # --- ArchipelagoLoginPopup (Modified) ---
 class ArchipelagoLoginPopup(Popup):
     # ... (__init__, load_cached_settings, open_file_dialog, etc. are unchanged) ...
@@ -308,20 +353,17 @@ class ArchipelagoLoginPopup(Popup):
             Logger.error(f"Cache: Failed to load settings: {e}")
 
     def open_file_dialog(self, instance):
-        instance.disabled = True
+        # Pure-Kivy file chooser (no plyer/pyobjus). Runs on the main thread; the popup
+        # calls back into the existing _handle_selection logic with [path].
         self.status_label.text = "Opening file dialog..."
-        threading.Thread(target=self._run_file_chooser, args=(instance,)).start()
-
-    def _run_file_chooser(self, button_instance):
-        try:
-            selection = filechooser.open_file(
-                title="Select your Musipelago JSON game file",
-                filters=[("JSON files", "*.json")]
-            )
-            Clock.schedule_once(lambda dt: self._handle_selection(selection, button_instance))
-        except Exception as e:
-            Logger.error(f"Plyer FileChooser: {e}")
-            Clock.schedule_once(lambda dt: self._handle_selection(None, button_instance))
+        # Start where the last-selected file lives (cached), else the home directory.
+        start_path = os.path.expanduser("~")
+        if self.json_file_path and os.path.isfile(self.json_file_path):
+            start_path = os.path.dirname(self.json_file_path)
+        GameFilePickerPopup(
+            initial_path=start_path,
+            on_selection=lambda path: self._handle_selection([path], instance)
+        ).open()
 
     def _handle_selection(self, selection, button_instance):
         button_instance.disabled = False
