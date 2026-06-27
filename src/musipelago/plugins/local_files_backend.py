@@ -808,10 +808,16 @@ class LocalFilesClientHost(AbstractClientHost):
             self.app.show_toast(f"File not found: {title}")
             Clock.schedule_once(lambda dt: self.on_playback_finished(), 0.1); return
 
-        # Update UI
+        # Update UI. In hidden mode, the currently-playing (not-yet-finished) track is the one
+        # you're trying to recognize, so mask its title/artist in the now-playing bar too.
         if self.playback_info_widget:
-            self.playback_info_widget.track_title = title
-            self.playback_info_widget.artist_album = f"{track_obj.artist} - {track_obj.album_title}"
+            is_finished = bool(prog and prog.get('is_finished'))
+            if getattr(self.app, 'hidden_metadata', False) and not is_finished:
+                self.playback_info_widget.track_title = "Unknown Track"
+                self.playback_info_widget.artist_album = "Unknown Artist"
+            else:
+                self.playback_info_widget.track_title = title
+                self.playback_info_widget.artist_album = f"{track_obj.artist} - {track_obj.album_title}"
             # For local files, we need to find the album art again or pass it down. 
             # For now, let's try to grab it from the parent album in cache
             parent_album = self.app.album_data_cache.get(parent)
@@ -933,6 +939,12 @@ class LocalFilesClientHost(AbstractClientHost):
                 menu.add_widget(btn)
                 button_added = True
 
+                # Hidden mode: let the player peek at an unrevealed track.
+                if getattr(app, 'hidden_metadata', False) and not list_item.is_finished:
+                    btn_reveal = Button(text="Reveal", size_hint_y=None, height=dp(44))
+                    btn_reveal.bind(on_release=lambda x: menu.on_option_select("Reveal"))
+                    menu.add_widget(btn_reveal)
+
                 if app.cheat_mode:
                     cheat_text = f"[color={cheat_color}]Send Location[/color]"
                     btn_send_loc = Button(text=cheat_text, markup=True, size_hint_y=None, height=dp(44))
@@ -954,7 +966,10 @@ class LocalFilesClientHost(AbstractClientHost):
         
         elif option_text == "Play Track":
             self._play_track(list_item.raw_uri, list_item.raw_title)
-        
+
+        elif option_text == "Reveal":
+            self.app.root.reveal_track(list_item.raw_uri)
+
         elif option_text == "Hint":
             apworld_name = list_item.text_line_4
             if self.app.ap_client and apworld_name:

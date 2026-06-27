@@ -612,24 +612,55 @@ class RootLayout(BoxLayout):
              app.client_host_ui.on_volume_change(int(value))
 
     def on_settings_icon_click(self):
-        """Opens the plugin-specific settings popup."""
+        """Opens the client settings popup: app-level toggles + any plugin-specific UI."""
         app = App.get_running_app()
         if not app.client_host_ui:
             app.show_toast("Not connected to a music service.")
             return
 
-        settings_ui = app.client_host_ui.get_settings_ui()
-        
-        if settings_ui:
-            popup = Popup(
-                title=f"{app.backend.service_name.capitalize()} Settings",
-                content=settings_ui,
-                size_hint=(0.7, 0.7),
-                auto_dismiss=True
-            )
-            popup.open()
+        panel = BoxLayout(orientation='vertical', spacing='10dp', padding='10dp')
+
+        # App-level: hidden / "unknown song" practice mode.
+        hidden_row = BoxLayout(orientation='horizontal', size_hint_y=None, height='40dp', spacing='10dp')
+        hidden_cb = CheckBox(active=app.hidden_metadata, size_hint_x=None, width='40dp')
+        hidden_cb.bind(active=lambda cb, val: self.set_hidden_metadata(val))
+        hidden_row.add_widget(hidden_cb)
+        hidden_row.add_widget(Label(text="Hidden mode (listen to 'unknown' songs to learn them)",
+                                    halign='left', valign='middle'))
+        panel.add_widget(hidden_row)
+
+        # Plugin-specific settings, if the backend provides any.
+        plugin_ui = app.client_host_ui.get_settings_ui()
+        if plugin_ui:
+            panel.add_widget(plugin_ui)
         else:
-            app.show_toast("No specific settings available for this plugin.")
+            panel.add_widget(BoxLayout())  # spacer so the toggle sits at the top
+
+        popup = Popup(
+            title=f"{app.backend.service_name.capitalize()} Settings",
+            content=panel,
+            size_hint=(0.7, 0.7),
+            auto_dismiss=True
+        )
+        popup.open()
+
+    def set_hidden_metadata(self, active):
+        """Toggle hidden mode, persist it, and re-render the visible lists."""
+        app = App.get_running_app()
+        active = bool(active)
+        if active == app.hidden_metadata:
+            return
+        app.hidden_metadata = active
+        app._save_client_settings()
+        # Re-render: album list, then the current track list (if one is shown).
+        try:
+            app._populate_initial_lists()
+        except Exception as e:
+            Logger.warning(f"UI: Could not refresh album list on toggle: {e}")
+        container_uri = getattr(app, '_current_track_container_uri', None)
+        if container_uri:
+            self.populate_track_list(container_uri)
+        app.show_toast(f"Hidden mode {'ON' if active else 'OFF'}")
 
     # --- UI-Only Methods (Remain in RootLayout) ---
     def populate_track_list(self, container_uri, local_image_path=None):
@@ -640,7 +671,9 @@ class RootLayout(BoxLayout):
         Logger.info(f"--- populate_track_list started for {container_uri} ---")
         try:
             app = App.get_running_app()
-            
+            # Remember which album's tracks are shown so a hidden-mode toggle can re-render.
+            app._current_track_container_uri = container_uri
+
             # container_data is now a GenericAlbum object
             container_data = app.album_data_cache.get(container_uri)
             if not container_data:
@@ -673,11 +706,19 @@ class RootLayout(BoxLayout):
                 if not text_line_3:
                     text_line_3 = app.apworld_map.get(track_uri, "Unknown Track")
 
+                # Hidden / "unknown song" mode: mask title, artist, and the AP location line
+                # (which would otherwise spell out the answer) until the track is finished.
+                # raw_* keep the real values for playback and for reveal.
+                hidden = app.hidden_metadata and not is_finished
+                disp_title = "Unknown Track" if hidden else title
+                disp_artist = "Unknown Artist" if hidden else artists
+                disp_line3 = (text_line_3 if has_hint_bool else "???") if hidden else text_line_3
+
                 item_data = {
-                    'text_line_1': title,
+                    'text_line_1': disp_title,
                     'text_line_2': self.format_duration(duration_ms),
-                    'text_line_3': text_line_3,
-                    'text_line_4': artists,
+                    'text_line_3': disp_line3,
+                    'text_line_4': disp_artist,
                     # Get the single, processed image URL
                     'image_source': local_image_path or container_data.display_image_url or container_data.image_url or KIVY_ICON,
                     'list_id': track_uri,
@@ -685,6 +726,7 @@ class RootLayout(BoxLayout):
                     'raw_uri': track_uri,
                     'raw_title': title,
                     'raw_artist': artists,
+                    'raw_line3': text_line_3,
                     'is_finished': is_finished,
                     'has_hint': has_hint_bool
                 }
@@ -773,6 +815,23 @@ class RootLayout(BoxLayout):
                 track_data['text_line_3'] = hint_text; track_rv.refresh_from_data()
                 Logger.info(f"UI updated hint for track: {track_data['raw_title']}"); break
 
+    @staticmethod
+    def _unmask_track_row(track_data):
+        """Restore a track row's real title/artist/location line (used on finish and on Reveal)."""
+        track_data['text_line_1'] = track_data.get('raw_title', track_data['text_line_1'])
+        track_data['text_line_4'] = track_data.get('raw_artist', track_data['text_line_4'])
+        if 'raw_line3' in track_data:
+            track_data['text_line_3'] = track_data['raw_line3']
+
+    def reveal_track(self, track_uri):
+        """Manual peek: reveal a single hidden track without marking it finished."""
+        track_rv = self.ids.list_container.ids.track_rv
+        for track_data in track_rv.data:
+            if track_data['raw_uri'] == track_uri:
+                self._unmask_track_row(track_data)
+                track_rv.refresh_from_data()
+                break
+
     def update_track_ui(self, track_uri):
         track_rv = self.ids.list_container.ids.track_rv
         track_updated = False
@@ -780,6 +839,8 @@ class RootLayout(BoxLayout):
             if track_data['raw_uri'] == track_uri:
                 if not track_data['is_finished']:
                     track_data['is_finished'] = True; track_updated = True
+                # A finished track always shows its real metadata, even in hidden mode.
+                self._unmask_track_row(track_data)
                 track_rv.refresh_from_data()
                 Logger.info(f"UI updated for track: {track_uri}"); break
         if track_updated:
@@ -1167,6 +1228,8 @@ class MusipelagoClientApp(App):
         self.cache_dir = None; self.allow_playing_any_track = False
         self.cheat_mode = False; self.ap_client = None; self.client_uuid = None
         self.json_path = None
+        self.hidden_metadata = False  # "unknown song" practice mode (client-side toggle)
+        self._current_track_container_uri = None  # last album whose tracks are shown (for re-render)
         
         resource_add_path(resource_path(''))
         self.plugin_manager = PluginManager(plugin_dir=resource_path('plugins'))
@@ -1188,6 +1251,13 @@ class MusipelagoClientApp(App):
         except Exception as e:
             if not self.client_uuid: self.client_uuid = str(uuid.uuid4())
             Logger.warning(f"Cache: Using ephemeral UUID (storage failed): {self.client_uuid}")
+
+        # Load persisted client preferences (e.g. hidden/"unknown song" mode).
+        try:
+            if self.store.exists('client_settings'):
+                self.hidden_metadata = bool(self.store.get('client_settings').get('hidden_metadata', False))
+        except Exception as e:
+            Logger.warning(f"Cache: Could not load client settings: {e}")
 
         self.audio_player = GenericAudioPlayer(
             on_finish_callback=self.on_playback_finished_callback
@@ -1446,6 +1516,13 @@ class MusipelagoClientApp(App):
             Logger.error(f"Game: Failed to load or parse JSON file: {e}")
             self.root.set_status(f"Error loading file: {e}")
             return None, None, None
+
+    def _save_client_settings(self):
+        """Persist client-side preferences (hidden mode, future toggles)."""
+        try:
+            self.store.put('client_settings', hidden_metadata=bool(self.hidden_metadata))
+        except Exception as e:
+            Logger.warning(f"Cache: Could not save client settings: {e}")
 
     def store_track_hint(self, track_uri, hint_text):
         Logger.info(f"UI: Storing persistent hint for {track_uri}")
