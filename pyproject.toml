@@ -13,14 +13,14 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "kivy==2.3.1",
-    "jinja2",
-    "requests",
-    "python-dotenv",
-    "websockets",
-    "mutagen",
+    "jinja2>=3.1",
+    "requests>=2.31",
+    "python-dotenv>=1.0",
+    "websockets>=12",
+    "mutagen>=1.47",
     "python-vlc",
-    "unidecode",
-    "Pillow"
+    "unidecode>=1.3",
+    "Pillow>=10"
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -32,7 +32,7 @@ license = "MIT"
 license-files = ["LICEN[CS]E*"]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "ruff>=0.6", "pre-commit>=3.5"]
 
 [project.scripts]
 # Syntax: command-name = "package.module:function"
@@ -45,8 +45,8 @@ exclude = [
     "src/musipelago/vlc_engine"
 ]
 
-# Hatchling includes non-python files (like .kv) automatically 
-# if they are inside the package and not git-ignored. 
+# Hatchling includes non-python files (like .kv) automatically
+# if they are inside the package and not git-ignored.
 # But to be 100% safe, we can explicitly include them:
 [tool.hatch.build.targets.sdist]
 include = [
@@ -65,3 +65,34 @@ testpaths = ["tests"]
 # Tests run headless: the conftest forces the dummy SDL driver before kivy imports.
 # Client tests that need libvlc self-skip via importorskip, so the default run is
 # CI-safe without VLC installed.
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+# Generated/vendored trees that aren't ours to style.
+extend-exclude = ["src/musipelago/vlc_engine"]
+
+[tool.ruff.lint]
+# A pragmatic baseline: pyflakes/pycodestyle errors + warnings, import sorting,
+# pyupgrade, bugbear, and simplify. BLE001 (blind-except) is deliberately NOT
+# enabled yet — the codebase still has ~50 `except Exception` swallowers; it's
+# tracked as a burn-down (see ROADMAP.md C4b) and runnable on demand via
+# `ruff check --select BLE001 --statistics`.
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = [
+    "E402",   # Kivy apps must set os.environ / kivy.Config before importing kivy submodules
+    "E501",   # line length is the formatter's remit; long string/URL literals stay intact
+    # --- Deferred style burn-down (ROADMAP.md C4b) — enable each as it's cleared ---
+    "B007",   # unused loop control variable
+    "B027",   # empty method in an abstract base (intentional no-op hooks)
+    "B905",   # zip() without an explicit strict=
+    "SIM102", # collapsible nested if
+    "SIM105", # contextlib.suppress (travels with the broad-except burn-down)
+    "SIM118", # `key in dict` over `key in dict.keys()`
+    "E731",   # lambda assignment
+    "E741",   # ambiguous variable name
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests favour readability over some lint niceties.
+"tests/*" = ["E501"]
