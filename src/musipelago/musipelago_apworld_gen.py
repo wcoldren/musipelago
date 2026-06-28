@@ -1358,6 +1358,7 @@ class MusipelagoAPWGenApp(App):
         self.backend = None
         self.login_popup = None
         resource_add_path(resource_path(''))
+        self.icon = resource_path(os.path.join('resources', 'musipelago_icon.png'))
 
         if getattr(sys, 'frozen', False):
             base_path = os.path.dirname(sys.executable)
