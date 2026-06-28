@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os, threading, hashlib, base64
+import os, re, threading, hashlib, base64
 
 from kivy.logger import Logger
 from kivy.clock import Clock
@@ -51,6 +51,42 @@ def parse_track_no(raw):
         return int(s)
     except (ValueError, TypeError):
         return None
+
+
+def _leading_num(filename):
+    """Leading integer of a filename (e.g. '03. Foo.mp3' -> 3), or None."""
+    m = re.match(r"\s*(\d+)", filename)
+    return int(m.group(1)) if m else None
+
+
+def sort_track_infos(items):
+    """Order scanned tracks. Each item is (filename, track_no, disc_no, info);
+    returns the info payloads in album order. Pure — unit-testable.
+
+    Heuristic (folder-level, picks the most reliable signal):
+      1. Numbered filenames ('01.', '02.' …, common + authoritative even when tags
+         are messy — e.g. reissues whose tracknumber tags restart per bonus set).
+      2. Otherwise unique tag (disc, track) numbers.
+      3. Otherwise plain filename order.
+    """
+    n = len(items)
+    if n == 0:
+        return []
+    leads = [_leading_num(it[0]) for it in items]
+    track_keys = [(it[2] or 0, it[1]) for it in items]
+    use_lead = all(x is not None for x in leads)
+    use_track = (not use_lead) and all(it[1] is not None for it in items) \
+        and len(set(track_keys)) == n
+
+    def key(i):
+        fn = items[i][0].lower()
+        if use_lead:
+            return (leads[i], fn)
+        if use_track:
+            return (items[i][2] or 0, items[i][1], fn)
+        return (0, 0, fn)
+
+    return [items[i][3] for i in sorted(range(n), key=key)]
 
 
 # --- Plugin-specific helper UI ---
@@ -576,14 +612,10 @@ class LocalFilesHostUI(AbstractPluginHost):
                 # Don't crash on one bad file; fall back to the filename later.
                 Logger.warning(f"LocalFiles: Could not read metadata for {filename}: {e}")
 
-            # Order by (disc, track number, filename). Untagged tracks sort after
-            # numbered ones; an all-untagged folder degrades to filename order.
-            sort_key = (disc_no or 0, track_no if track_no is not None else 10**6,
-                        filename.lower())
-            entries.append((sort_key, (filepath, title_tag, artist_tag, duration_ms)))
+            entries.append((filename, track_no, disc_no,
+                            (filepath, title_tag, artist_tag, duration_ms)))
 
-        entries.sort(key=lambda e: e[0])
-        track_info_list = [info for _, info in entries]
+        track_info_list = sort_track_infos(entries)
 
         consensus_album = max(set(album_tags), key=album_tags.count) if album_tags else ""
         consensus_artist = max(set(artist_tags), key=artist_tags.count) if artist_tags else ""
