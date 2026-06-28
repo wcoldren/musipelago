@@ -180,6 +180,58 @@ def test_gen_settings_roundtrip_and_defaults(tmp_path):
     assert app._load_gen_setting('last_service') == 'local_files_backend'
 
 
+# --- _read_meta_config reads ToggleButton state ---------------------------
+
+class _FakeIds(dict):
+    """Supports both `'x' in ids` and `ids.x` like Kivy's ids."""
+    def __getattr__(self, k):
+        return self[k]
+
+
+def _meta_popup(**widgets):
+    stub = types.SimpleNamespace(ids=_FakeIds(widgets))
+    stub._read_meta_config = types.MethodType(g.GeneratePopup._read_meta_config, stub)
+    return stub
+
+
+def test_read_meta_config_disabled_when_toggle_up():
+    p = _meta_popup(meta_enable=types.SimpleNamespace(state='normal'))
+    assert p._read_meta_config() == {'enabled': False}
+
+
+def test_read_meta_config_reads_toggle_states():
+    p = _meta_popup(
+        meta_enable=types.SimpleNamespace(state='down'),
+        meta_mode=types.SimpleNamespace(text='Minutes per pack'),
+        meta_count=types.SimpleNamespace(text='12'),
+        meta_seed=types.SimpleNamespace(text=''),
+        meta_subset=types.SimpleNamespace(text='8'),
+        meta_shuffle=types.SimpleNamespace(state='normal'),
+    )
+    cfg = p._read_meta_config()
+    assert cfg == {'enabled': True, 'mode': 'minutes', 'count': 12, 'seed': None,
+                   'subset': 8, 'shuffle': False}
+
+
+# --- starter YAML + output_root -------------------------------------------
+
+def test_build_starter_yaml_has_game_and_capped_slot():
+    y = g.build_starter_yaml("A_Really_Long_World_Name_123")
+    assert "game: Musipelago_A_Really_Long_World_Name_123" in y
+    assert "name: A_Really_Long_W" in y          # slot capped to 16 chars
+    assert "StartingAlbum: album_001" in y
+    assert "AllowPlayingAnyTrack: true" in y
+
+
+def test_output_root_default_and_saved(tmp_path):
+    import os
+    app = _app_with_store(tmp_path)
+    app.output_root = types.MethodType(g.MusipelagoAPWGenApp.output_root, app)
+    assert app.output_root() == os.path.expanduser('~/Musipelago')   # default
+    app._save_gen_setting('output_dir', '/tmp/worlds')
+    assert app.output_root() == '/tmp/worlds'
+
+
 # --- non-lossy track editing (ListContainer._apply_edit) -------------------
 
 def _edit_container(album):

@@ -300,24 +300,13 @@
             halign: 'left'
             text_size: self.width, None
 
-        BoxLayout:
-            orientation: 'horizontal'
+        ToggleButton:
+            id: meta_enable
+            state: 'normal'
             size_hint_y: None
-            height: '32dp'
-            spacing: '8dp'
-
-            CheckBox:
-                id: meta_enable
-                active: False
-                size_hint_x: None
-                width: '40dp'
-
-            Label:
-                text: 'Reshuffle my tracks into custom mixtapes'
-                color: app.col_text
-                halign: 'left'
-                valign: 'middle'
-                text_size: self.size
+            height: '40dp'
+            text: ('☑  ' if self.state == 'down' else '☐  ') + 'Reshuffle my tracks into custom mixtapes'
+            halign: 'center'
 
         Label:
             text: 'Otherwise each album is generated as-is. Choose how tracks are grouped:'
@@ -328,15 +317,15 @@
             text_size: self.width, None
             valign: 'top'
             halign: 'left'
-            opacity: 1 if meta_enable.active else 0.4
+            opacity: 1 if meta_enable.state == 'down' else 0.4
 
         BoxLayout:
             orientation: 'horizontal'
             size_hint_y: None
             height: '40dp'
             spacing: '8dp'
-            disabled: not meta_enable.active
-            opacity: 1 if meta_enable.active else 0.4
+            disabled: meta_enable.state != 'down'
+            opacity: 1 if meta_enable.state == 'down' else 0.4
 
             Label:
                 text: 'Group into'
@@ -373,8 +362,8 @@
             size_hint_y: None
             height: '40dp'
             spacing: '8dp'
-            disabled: not meta_enable.active
-            opacity: 1 if meta_enable.active else 0.4
+            disabled: meta_enable.state != 'down'
+            opacity: 1 if meta_enable.state == 'down' else 0.4
 
             Label:
                 text: 'Use only'
@@ -400,17 +389,12 @@
                 valign: 'middle'
                 text_size: self.size
 
-            CheckBox:
+            ToggleButton:
                 id: meta_shuffle
-                active: True
+                state: 'down'
                 size_hint_x: None
-                width: '40dp'
-
-            Label:
-                text: 'Shuffle'
-                halign: 'left'
-                valign: 'middle'
-                text_size: self.size
+                width: '96dp'
+                text: 'Shuffle: ON' if self.state == 'down' else 'Shuffle: OFF'
 
             Label:
                 text: 'Seed'
