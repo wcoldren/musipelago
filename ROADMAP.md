@@ -64,11 +64,14 @@ the **client Settings surface** that A2/C3 reuse. Shipped on `feat/client-hidden
 Optional gen-app UI to tag a subset of tracks as the "trap pool" or quiz set, emitted into the
 catalog. Builds on the existing per-track selection / meta-album curation patterns. Do after A1.
 
-### A5. Randomizer controls — #mixtapes, #tracks-as-checks, subset + shuffle — 🟡 · gen · upstream? — **rank: MEDIUM**
-Extends meta-albums (`build_meta_albums`, `musipelago_apworld_gen.py:288`) from a fixed shuffle into a
+### A5. Randomizer controls — #mixtapes, #tracks-as-checks, subset + shuffle, minutes/pack — 🟡 · gen · upstream? — ✅ **DONE**
+Extends meta-albums (`build_meta_albums`, `musipelago_apworld_gen.py`) from a fixed shuffle into a
 controllable randomizer, surfaced as `GeneratePopup` controls (sibling of A4). Knobs: (a) number of
-mixtapes = pack `count`; (b) number of tracks used as checks = **sample a subset of size K from the
-pool before packing**; (c) shuffle on/off.
+mixtapes = pack `count` (**already existed** — `meta_mode='N packs'`); (b) number of tracks used as
+checks = **sample a subset of size K from the pool before packing** (✅); (c) shuffle on/off (✅);
+(d) **minutes-per-pack** mode — greedily fill each mixtape to ~N minutes via `GenericTrack.duration_ms`,
+each track landing on whichever boundary keeps the pack closest to target (✅, added on user request).
+Shipped on `feat/randomizer-controls` (off `feat/meta-albums`) → `dev`; 8 tests (53 total, headless).
 
 - **Decided: gen-app controls (v1).** AP **locations are fixed at generation time**, so the check-count
   and chosen track subset bake into the `.apworld` — they belong in the gen app, not the player YAML.
@@ -175,7 +178,7 @@ jumps up the list once online/multiworld play starts. A2/A3 are client-side togg
    outrun the safety net, the harness was stranded in scratch, and it makes the upstream PRs reviewable.
 5. **A1** — traps (flagship; first item needing world changes + the per-item dispatch hook).
 6. **A4** — generator-side curation for traps/quiz (builds on A1).
-7. **A5** — randomizer controls (#mixtapes / #checks / subset+shuffle; gen-app, builds on meta-albums).
+7. **A5** — randomizer controls (#mixtapes / #checks / subset+shuffle / minutes-per-pack; gen-app, builds on meta-albums) — ✅ done.
 8. **B3** — album art: display already shipped upstream; **hidden-mode art masking ✅ done**
    (`fix/hidden-art-leak`) → **B2** — visual refresh + theming.
 9. **C3** — audio backend fallback factory (selector lives in A3's Settings surface).
