@@ -32,10 +32,10 @@ supported. The blocker is that the **client has no per-item dispatch** — `_syn
 You identify the playing track (fuzzy-match on `GenericTrack.{title,artist,album_title}` via
 `difflib`). **We'll implement BOTH ways guessing ties into Archipelago checks:**
 
-- **A2a — gate the existing check** (🟢🟡, client-only, no regen, works on current seeds): each
-  track already has one location check (earned on finish). In guess mode you earn it by correctly
-  naming the track; reveal / give-up = no credit. Hooks the finish→`send_location_check` path
-  (`local_files_backend.py:759–773`). Pure client toggle, builds on A3's reveal plumbing.
+- **A2a — gate the existing check** — ✅ **DONE** (client-only, no regen, works on current seeds):
+  "Guess mode" toggle in Settings; when on, finishing a track no longer auto-awards its check —
+  a per-row **Guess** button opens a prompt and a correct (fuzzy) title guess awards the check via
+  the shared `RootLayout.complete_track`. Reveal = give up. Shipped on `feat/guess-mode` → `dev`.
 - **A2b — bonus "guess" checks** (🟡🔴, world + regen): generate a SECOND location per track
   ("Guess: <track>") so a correct guess is a genuinely *extra* check (more items/progression).
   Touches `Locations.py.j2` / `Items.py.j2` / `Rules.py.j2` and requires regenerating seeds.

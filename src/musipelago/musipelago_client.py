@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os, sys, json, traceback, logging, uuid, ctypes
+import os, sys, json, traceback, logging, uuid, ctypes, re, difflib
 import requests, threading, hashlib, shutil
 
 # --- KIVY IMPORTS ---
@@ -425,6 +425,25 @@ class ArchipelagoLoginPopup(Popup):
         self.json_button.disabled = False
 
 
+def _normalize_title(s):
+    """Lowercase, drop parenthetical/bracket tags (e.g. '(Remastered 2012)'), strip punctuation,
+    and collapse whitespace — so guesses match titles loosely."""
+    s = (s or "").lower()
+    s = re.sub(r"[\(\[\{].*?[\)\]\}]", " ", s)   # remove (…)/[…]/{…} annotations
+    s = re.sub(r"[^a-z0-9]+", " ", s)            # punctuation -> space
+    return " ".join(s.split()).strip()
+
+
+def _titles_match(guess, answer):
+    """True if a guessed title matches the real title (normalized equality or fuzzy ratio)."""
+    g, a = _normalize_title(guess), _normalize_title(answer)
+    if not g or not a:
+        return False
+    if g == a:
+        return True
+    return difflib.SequenceMatcher(None, g, a).ratio() >= 0.85
+
+
 # --- ToastMessage, ItemMenu, CustomListItem, ListContainer (Unchanged) ---
 class CustomListItem(ButtonBehavior, BoxLayout):
     text_line_1 = StringProperty('Line 1'); text_line_2 = StringProperty('Line 2')
@@ -437,6 +456,7 @@ class CustomListItem(ButtonBehavior, BoxLayout):
     raw_total_tracks = StringProperty(); raw_image_url = StringProperty()
     raw_uri = StringProperty(); menu = ObjectProperty(None)
     can_reveal = BooleanProperty(False)  # show a per-row Reveal button (hidden mode, unfinished)
+    can_guess = BooleanProperty(False)   # show a per-row Guess button (hidden + guess mode, unfinished)
 
     def handle_menu_click(self, button_instance):
         """
@@ -640,6 +660,23 @@ class RootLayout(BoxLayout):
             text="Listen to 'unknown' songs to learn them — track names stay hidden until you finish (or Reveal) a track.",
             size_hint_y=None, height='30dp', halign='left', valign='middle'))
 
+        # App-level: guess mode — earn a track's check by naming it (best with Hidden mode on).
+        guess_btn = ToggleButton(
+            text=f"Guess mode: {'ON' if app.guess_mode else 'OFF'}",
+            state='down' if app.guess_mode else 'normal',
+            size_hint_y=None, height='48dp')
+
+        def _on_guess_toggle(btn):
+            active = btn.state == 'down'
+            btn.text = f"Guess mode: {'ON' if active else 'OFF'}"
+            self.set_guess_mode(active)
+
+        guess_btn.bind(on_release=_on_guess_toggle)
+        panel.add_widget(guess_btn)
+        panel.add_widget(Label(
+            text="Name the track to earn its check (needs Hidden mode on). Reveal = give up, no credit.",
+            size_hint_y=None, height='30dp', halign='left', valign='middle'))
+
         # Plugin-specific settings, if the backend provides any.
         plugin_ui = app.client_host_ui.get_settings_ui()
         if plugin_ui:
@@ -655,6 +692,17 @@ class RootLayout(BoxLayout):
         )
         popup.open()
 
+    def _refresh_lists(self):
+        """Re-render the album list and the current track list (after a settings toggle)."""
+        app = App.get_running_app()
+        try:
+            app._populate_initial_lists()
+        except Exception as e:
+            Logger.warning(f"UI: Could not refresh album list: {e}")
+        container_uri = getattr(app, '_current_track_container_uri', None)
+        if container_uri:
+            self.populate_track_list(container_uri)
+
     def set_hidden_metadata(self, active):
         """Toggle hidden mode, persist it, and re-render the visible lists."""
         app = App.get_running_app()
@@ -664,15 +712,20 @@ class RootLayout(BoxLayout):
             return
         app.hidden_metadata = active
         app._save_client_settings()
-        # Re-render: album list, then the current track list (if one is shown).
-        try:
-            app._populate_initial_lists()
-        except Exception as e:
-            Logger.warning(f"UI: Could not refresh album list on toggle: {e}")
-        container_uri = getattr(app, '_current_track_container_uri', None)
-        if container_uri:
-            self.populate_track_list(container_uri)
+        self._refresh_lists()
         app.show_toast(f"Hidden mode {'ON' if active else 'OFF'}")
+
+    def set_guess_mode(self, active):
+        """Toggle guess mode, persist it, and re-render the visible lists."""
+        app = App.get_running_app()
+        active = bool(active)
+        Logger.info(f"UI: Guess mode toggled -> {active}")
+        if active == app.guess_mode:
+            return
+        app.guess_mode = active
+        app._save_client_settings()
+        self._refresh_lists()
+        app.show_toast(f"Guess mode {'ON' if active else 'OFF'}")
 
     # --- UI-Only Methods (Remain in RootLayout) ---
     def populate_track_list(self, container_uri, local_image_path=None):
@@ -741,7 +794,8 @@ class RootLayout(BoxLayout):
                     'raw_line3': text_line_3,
                     'is_finished': is_finished,
                     'has_hint': has_hint_bool,
-                    'can_reveal': hidden
+                    'can_reveal': hidden,
+                    'can_guess': hidden and app.guess_mode
                 }
                 track_list_for_rv.append(item_data)
                 
@@ -837,14 +891,62 @@ class RootLayout(BoxLayout):
             track_data['text_line_3'] = track_data['raw_line3']
 
     def reveal_track(self, track_uri):
-        """Manual peek: reveal a single hidden track without marking it finished."""
+        """Manual peek / give up: reveal a single hidden track without marking it finished."""
         track_rv = self.ids.list_container.ids.track_rv
         for track_data in track_rv.data:
             if track_data['raw_uri'] == track_uri:
                 self._unmask_track_row(track_data)
                 track_data['can_reveal'] = False  # collapse the per-row Reveal button
+                track_data['can_guess'] = False   # giving up ends guessing for this row
                 track_rv.refresh_from_data()
                 break
+
+    def complete_track(self, track_uri):
+        """Mark a track finished, award its AP location check, and update the UI.
+        Shared by normal playback-finish and a correct guess (A2a)."""
+        app = App.get_running_app()
+        track_data = app.track_progress.get(track_uri)
+        if not track_data or track_data.get('is_finished'):
+            return
+        track_data['is_finished'] = True
+        location_id = track_data.get('location_id')
+        if location_id and app.ap_client:
+            app.ap_client.send_location_check(location_id)
+        self.update_track_ui(track_uri)
+
+    def guess_track(self, track_uri):
+        """Open a popup to guess a hidden track's title; a correct guess awards its check."""
+        track_rv = self.ids.list_container.ids.track_rv
+        answer = next((td.get('raw_title') for td in track_rv.data
+                       if td['raw_uri'] == track_uri), None)
+        if not answer:
+            return
+        box = BoxLayout(orientation='vertical', spacing='10dp', padding='10dp')
+        box.add_widget(Label(text="Name this track:", size_hint_y=None, height='30dp'))
+        ti = TextInput(multiline=False, size_hint_y=None, height='40dp', write_tab=False)
+        box.add_widget(ti)
+        status = Label(text="", size_hint_y=None, height='24dp')
+        box.add_widget(status)
+        btns = BoxLayout(size_hint_y=None, height='44dp', spacing='10dp')
+        submit = Button(text="Submit"); cancel = Button(text="Cancel")
+        btns.add_widget(cancel); btns.add_widget(submit)
+        box.add_widget(btns)
+        popup = Popup(title="Guess the track", content=box, size_hint=(0.7, None), height='220dp',
+                      auto_dismiss=False)
+
+        def _submit(*_):
+            if _titles_match(ti.text, answer):
+                popup.dismiss()
+                self.complete_track(track_uri)
+                App.get_running_app().show_toast("Correct!")
+            else:
+                status.text = "Not quite — try again."
+                ti.text = ""
+
+        submit.bind(on_release=_submit)
+        ti.bind(on_text_validate=_submit)  # Enter submits
+        cancel.bind(on_release=lambda *_: popup.dismiss())
+        popup.open()
 
     def update_track_ui(self, track_uri):
         track_rv = self.ids.list_container.ids.track_rv
@@ -856,6 +958,7 @@ class RootLayout(BoxLayout):
                 # A finished track always shows its real metadata, even in hidden mode.
                 self._unmask_track_row(track_data)
                 track_data['can_reveal'] = False  # finished -> no Reveal button
+                track_data['can_guess'] = False   # finished -> no Guess button
                 track_rv.refresh_from_data()
                 Logger.info(f"UI updated for track: {track_uri}"); break
         if track_updated:
@@ -1244,6 +1347,7 @@ class MusipelagoClientApp(App):
         self.cheat_mode = False; self.ap_client = None; self.client_uuid = None
         self.json_path = None
         self.hidden_metadata = False  # "unknown song" practice mode (client-side toggle)
+        self.guess_mode = False  # earn a track's check by correctly naming it (client-side toggle)
         self._current_track_container_uri = None  # last album whose tracks are shown (for re-render)
         
         resource_add_path(resource_path(''))
@@ -1270,7 +1374,9 @@ class MusipelagoClientApp(App):
         # Load persisted client preferences (e.g. hidden/"unknown song" mode).
         try:
             if self.store.exists('client_settings'):
-                self.hidden_metadata = bool(self.store.get('client_settings').get('hidden_metadata', False))
+                cs = self.store.get('client_settings')
+                self.hidden_metadata = bool(cs.get('hidden_metadata', False))
+                self.guess_mode = bool(cs.get('guess_mode', False))
         except Exception as e:
             Logger.warning(f"Cache: Could not load client settings: {e}")
 
@@ -1463,6 +1569,7 @@ class MusipelagoClientApp(App):
                     'all_tracks_finished': all_tracks_complete,
                     'is_finished': False,
                     'can_reveal': False,  # albums are never revealable
+                    'can_guess': False,   # albums are never guessable
                     'list_id': uri,
                     'raw_item_type': 'album', # UI still uses 'album'
                     'raw_uri': uri,
@@ -1536,7 +1643,8 @@ class MusipelagoClientApp(App):
     def _save_client_settings(self):
         """Persist client-side preferences (hidden mode, future toggles)."""
         try:
-            self.store.put('client_settings', hidden_metadata=bool(self.hidden_metadata))
+            self.store.put('client_settings', hidden_metadata=bool(self.hidden_metadata),
+                           guess_mode=bool(self.guess_mode))
         except Exception as e:
             Logger.warning(f"Cache: Could not save client settings: {e}")
 

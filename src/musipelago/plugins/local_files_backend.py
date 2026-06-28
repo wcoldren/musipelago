@@ -767,12 +767,13 @@ class LocalFilesClientHost(AbstractClientHost):
             track_uri = self.current_playing_track_uri
             track_data = self.app.track_progress.get(track_uri)
             if track_data and not track_data['is_finished']:
-                track_data['is_finished'] = True
-                location_id = track_data.get('location_id')
-                if location_id and self.app.ap_client:
-                    self.app.ap_client.send_location_check(location_id)
-                self.root_layout.update_track_ui(track_uri)
-                self.app.show_toast(f"Finished: {self.current_playing_track_title}")
+                if getattr(self.app, 'guess_mode', False):
+                    # Guess mode: finishing playback does NOT award the check — the player must
+                    # name the track (per-row Guess button) to earn it.
+                    self.app.show_toast("Track ended — guess it to score.")
+                else:
+                    self.root_layout.complete_track(track_uri)
+                    self.app.show_toast(f"Finished: {self.current_playing_track_title}")
 
         # 3. Advance Queue
         next_index = self.queue_index + 1
