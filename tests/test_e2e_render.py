@@ -86,3 +86,25 @@ def test_victory_count_matches_album_count(rendered):
         r'state\.has\("Album finished!", player, (\d+)\)',
         texts["Rules.py.j2"])
     assert m and int(m.group(1)) == len(metas)
+
+
+def test_subset_shrinks_rendered_location_count(tmp_path):
+    """A5: a `subset=K` build must bake exactly K AP locations into the rendered
+    world — proving the check-count knob really shrinks the location pool."""
+    src = [_album("alb1", 6, "Bandit"), _album("alb2", 6, "Bandit"),
+           _album("alb3", 5, "Other")]                 # 17 tracks
+    metas = g.build_meta_albums(src, mode="packs", count=3, seed=7, subset=8)
+    assert sum(len(m.tracks) for m in metas) == 8
+
+    env = Environment(loader=FileSystemLoader(TPL))
+    env.filters["to_ascii"] = filter_to_ascii
+    env.filters["py_json"] = filter_py_json
+    txt = env.get_template("Locations.py.j2").render(
+        {"apworld_data": metas, "apworld_name": "Subset"})
+    path = os.path.join(tmp_path, "Locations.py")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(txt)
+    py_compile.compile(path, doraise=True)
+
+    locs = re.findall(r'^\s*("(?:[^"\\]|\\.)*")\s*:\s*LocData\(', txt, re.M)
+    assert len(locs) == len(set(locs)) == 8            # K unique locations, not 17

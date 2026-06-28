@@ -100,3 +100,73 @@ def test_count_greater_than_tracks_has_no_empty_packs():
 
 def test_empty_input_returns_unchanged():
     assert g.build_meta_albums([], mode="packs", count=4) == []
+
+
+# --- A5: randomizer controls (subset, shuffle, minutes mode) --------------
+
+def flat_uris(albums):
+    """Track URIs in source order (no Counter), for order-sensitive asserts."""
+    return [t.uri for a in albums for t in a.tracks]
+
+
+def test_subset_truncates_track_pool():
+    metas = g.build_meta_albums(SRC, mode="packs", count=4, seed=1, subset=8)
+    assert sum(len(m.tracks) for m in metas) == 8
+    uris = [t.uri for m in metas for t in m.tracks]
+    assert len(uris) == len(set(uris)) == 8        # no dups, kept tracks unique
+    assert set(uris) <= set(SRC_URIS)              # all came from the source pool
+
+
+def test_subset_none_zero_or_oversized_keeps_all():
+    for sub in (None, 0, TOTAL, TOTAL + 100):
+        metas = g.build_meta_albums(SRC, mode="packs", count=4, seed=1, subset=sub)
+        assert all_uris(metas) == SRC_URIS, sub
+
+
+def test_shuffle_false_preserves_catalog_order():
+    metas = g.build_meta_albums(SRC, mode="per_pack", count=4, shuffle=False)
+    assert flat_uris(metas) == flat_uris(SRC)
+    assert_partition(metas)
+
+
+def test_shuffle_false_with_subset_takes_first_k():
+    metas = g.build_meta_albums(SRC, mode="per_pack", count=100,
+                                shuffle=False, subset=5)
+    assert flat_uris(metas) == flat_uris(SRC)[:5]
+
+
+def test_subset_reproducible_with_seed():
+    chosen = lambda m: sorted(t.uri for a in m for t in a.tracks)
+    a = g.build_meta_albums(SRC, mode="packs", count=3, seed=42, subset=10)
+    b = g.build_meta_albums(SRC, mode="packs", count=3, seed=42, subset=10)
+    assert chosen(a) == chosen(b)                  # same seed+subset -> same picks
+    c = g.build_meta_albums(SRC, mode="packs", count=3, seed=999, subset=10)
+    assert chosen(a) != chosen(c)                  # different seed -> different picks
+
+
+def _timed_album(uri, n, dur_ms):
+    tracks = [GenericTrack(uri=f"{uri}/{i}", title=f"t{i}", artist="A",
+                           album_title="orig", duration_ms=dur_ms, service="local")
+              for i in range(n)]
+    return GenericAlbum(uri=uri, title=uri, artist="A", image_url="",
+                        total_tracks=n, album_type="Album", service="local",
+                        tracks=tracks)
+
+
+def test_minutes_mode_packs_to_target_duration():
+    # 12 tracks of 3 minutes; target 9 min -> packs of ~3 tracks.
+    src = [_timed_album("timed", 12, 3 * 60 * 1000)]
+    metas = g.build_meta_albums(src, mode="minutes", count=9, shuffle=False)
+    assert sum(len(m.tracks) for m in metas) == 12         # nothing dropped
+    full = [m for m in metas if len(m.tracks) == 3]
+    assert len(full) >= 3                                   # most packs hit the target
+    # each full pack is exactly the 9-minute target
+    assert all(sum(t.duration_ms for t in m.tracks) == 9 * 60 * 1000 for m in full)
+    uris = [t.uri for m in metas for t in m.tracks]
+    assert len(uris) == len(set(uris)) == 12               # partition invariant
+
+
+def test_minutes_mode_zero_duration_falls_back_to_single_pack():
+    src = [_timed_album("nodur", 5, 0)]
+    metas = g.build_meta_albums(src, mode="minutes", count=10)
+    assert sum(len(m.tracks) for m in metas) == 5          # no crash, nothing lost
