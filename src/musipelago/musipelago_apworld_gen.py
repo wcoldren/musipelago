@@ -5,6 +5,7 @@ import dataclasses
 import random
 
 from musipelago.utils import resource_path
+from musipelago import theme as theme
 from kivy.logger import Logger
 from kivy.config import Config
 try:
@@ -54,12 +55,15 @@ from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.popup import Popup
 from kivy.uix.checkbox import CheckBox
+from kivy.uix.togglebutton import ToggleButton
 from kivy.clock import Clock
 from kivy.uix.dropdown import DropDown
 from kivy.uix.image import Image
 from kivy.uix.spinner import Spinner
 from kivy.metrics import dp
-from kivy.properties import StringProperty, ListProperty, ObjectProperty
+from kivy.properties import (
+    StringProperty, ListProperty, ObjectProperty, BooleanProperty, ColorProperty
+)
 from kivy.storage.jsonstore import JsonStore
 from kivy.resources import resource_add_path
 
@@ -561,6 +565,48 @@ class CustomListItem(BoxLayout):
     list_id = StringProperty('')
     generic_item = ObjectProperty(None, allownone=True) # This holds the GenericAlbum/Artist/Playlist
 
+    # --- Derived action affordances (the kv binds a visible button to these) ---
+    primary_label = StringProperty('')      # text of the row's main action button
+    has_secondary = BooleanProperty(False)  # show the compact "..." menu (artists only)
+
+    def on_list_id(self, *_):
+        self._refresh_actions()
+
+    def on_generic_item(self, *_):
+        self._refresh_actions()
+
+    def _refresh_actions(self):
+        """Recompute the visible action button + whether a secondary menu exists.
+        Driven by list_id + item type so every dict builder gets it for free, and
+        recycled RecycleView rows can't show a stale label."""
+        lid, item = self.list_id, self.generic_item
+        if lid == 'load_more_button':
+            self.primary_label, self.has_secondary = 'Load more', False
+        elif lid == 'apworld':
+            self.primary_label, self.has_secondary = '✕ Remove', False
+        elif lid == 'search':
+            if isinstance(item, GenericArtist):
+                # primary = browse the artist's albums; secondary = add them all
+                self.primary_label, self.has_secondary = 'Albums', True
+            else:
+                self.primary_label, self.has_secondary = '+ Add', False
+        else:
+            self.primary_label, self.has_secondary = '', False
+
+    def on_primary(self):
+        """Handle the visible action button. Reuses the existing menu_action paths."""
+        app = App.get_running_app()
+        if self.list_id == 'load_more_button':
+            app.root.load_next_page()
+            return
+        if self.list_id == 'apworld':
+            self.menu_action('Remove')
+            return
+        if isinstance(self.generic_item, GenericArtist):
+            self.menu_action('Show all albums')
+        else:
+            self.menu_action('Add to APWorld')
+
     def open_menu(self, button_widget):
         app = App.get_running_app()
 
@@ -683,7 +729,7 @@ class CustomListItem(BoxLayout):
                     'text_line_1': item.title,
                     'text_line_2': item.artist,
                     'text_line_3': f"{item.album_type} • Tracks: {item.total_tracks}",
-                    'text_line_4': item.uri,
+                    'text_line_4': '',
                     'image_source': item.image_url or KIVY_ICON,
                     'list_id': 'search',
                     'generic_item': item # Pass the object itself
@@ -762,6 +808,9 @@ class ListContainer(BoxLayout):
     # This is the "source of truth" list, holding the full generic data
     apworld_data = ListProperty()   # List of GenericAlbum objects
 
+    # Header text for the right-hand pane, e.g. "Your APWorld — 5 albums · 73 tracks".
+    apworld_summary = StringProperty("Your APWorld — empty")
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Per-track selection popups are shown one at a time, so that bulk adds
@@ -836,17 +885,30 @@ class ListContainer(BoxLayout):
         """
         Logger.info("APWorld: Rebuilding right-side visual list.")
         visual_list = []
+        total_tracks = 0
         for album in new_data_list:
+            n = len(album.tracks)
+            total_tracks += n
+            mins = sum(t.duration_ms or 0 for t in album.tracks) // 60000
             visual_list.append({
                 'text_line_1': album.title,
                 'text_line_2': album.artist,
-                'text_line_3': f"{album.album_type} • Tracks: {len(album.tracks)}", # Use actual track count
-                'text_line_4': album.uri,
+                'text_line_3': f"{album.album_type} • {n} tracks",
+                'text_line_4': f"~{mins} min" if mins else '',
                 'image_source': album.display_image_url or album.image_url or KIVY_ICON,
                 'list_id': 'apworld',
                 'generic_item': album # Pass the object itself for the 'Remove' action
             })
         self.list_two_data = visual_list
+
+        # Update the right-pane header summary.
+        n_albums = len(new_data_list)
+        if n_albums:
+            self.apworld_summary = (
+                f"Your APWorld — {n_albums} album{'s' if n_albums != 1 else ''} "
+                f"· {total_tracks} track{'s' if total_tracks != 1 else ''}")
+        else:
+            self.apworld_summary = "Your APWorld — empty"
 
 class RootLayout(BoxLayout):
     status_text = StringProperty("App started. Ready.")
@@ -908,7 +970,7 @@ class RootLayout(BoxLayout):
                     'text_line_1': item.name,
                     'text_line_2': f"Albums: {item.metadata.get('album_count', '?')}",
                     'text_line_3': f"Genres: {', '.join(item.metadata.get('genres', [])[:2])}",
-                    'text_line_4': item.uri,
+                    'text_line_4': '',
                     'image_source': img,
                     'list_id': 'search',
                     'generic_item': item
@@ -918,7 +980,7 @@ class RootLayout(BoxLayout):
                     'text_line_1': item.title,
                     'text_line_2': item.artist,
                     'text_line_3': f"{item.album_type} • Tracks: {item.total_tracks}",
-                    'text_line_4': item.uri,
+                    'text_line_4': '',
                     'image_source': img,
                     'list_id': 'search',
                     'generic_item': item
@@ -928,7 +990,7 @@ class RootLayout(BoxLayout):
                     'text_line_1': item.name,
                     'text_line_2': f"Owner: {item.owner}",
                     'text_line_3': f"Tracks: {item.total_tracks}",
-                    'text_line_4': item.uri,
+                    'text_line_4': '',
                     'image_source': img,
                     'list_id': 'search',
                     'generic_item': item
@@ -991,8 +1053,49 @@ class RootLayout(BoxLayout):
             Clock.schedule_once(scroll_fix, 0.1)
 
     def on_settings_click(self):
-        Logger.debug("Settings button clicked!")
-        self.status_text = "Settings panel opened (not really)."
+        """Open the generator Settings popup: a live theme switch + an About/how-to
+        section. Mirrors the client's settings panel (built in Python, persisted to
+        the app JsonStore via App.apply_theme)."""
+        Logger.debug("Settings button clicked.")
+        app = App.get_running_app()
+
+        panel = BoxLayout(orientation='vertical', spacing='10dp', padding='10dp')
+
+        # Theme switch (Dark/Light) — applies live and persists.
+        is_light = app.theme_name == 'light'
+        theme_btn = ToggleButton(
+            text=f"Theme: {'Light' if is_light else 'Dark'}",
+            state='down' if is_light else 'normal',
+            size_hint_y=None, height='48dp')
+
+        def _on_theme_toggle(btn):
+            name = 'light' if btn.state == 'down' else 'dark'
+            btn.text = f"Theme: {name.capitalize()}"
+            app.apply_theme(name)
+
+        theme_btn.bind(on_release=_on_theme_toggle)
+        panel.add_widget(theme_btn)
+
+        # About / how-to.
+        about = Label(
+            text=("[b]Musipelago APWorld Generator[/b]\n\n"
+                  "How to use:\n"
+                  "1. Search for an album or artist above.\n"
+                  "2. Click [b]+ Add[/b] on results to add them to your APWorld.\n"
+                  "3. Click [b]Generate[/b] to build the .apworld + catalog.\n\n"
+                  "Tip: enable the Mixtape randomizer in the Generate dialog to shuffle "
+                  "tracks into custom packs."),
+            markup=True, halign='left', valign='top')
+        about.bind(size=lambda lbl, *_: setattr(lbl, 'text_size', lbl.size))
+        panel.add_widget(about)
+
+        close_btn = Button(text='Close', size_hint_y=None, height='44dp')
+        panel.add_widget(close_btn)
+
+        popup = Popup(title="Settings", content=panel, size_hint=(0.7, 0.7),
+                      auto_dismiss=True)
+        close_btn.bind(on_release=popup.dismiss)
+        popup.open()
 
     def on_generate_click(self):
         apworld_data = self.ids.list_container.apworld_data
@@ -1009,7 +1112,17 @@ class RootLayout(BoxLayout):
 class MusipelagoAPWGenApp(App):
 
     plugin_host_ui = ObjectProperty(None)
-    
+
+    # Theme colors — the kv binds to app.col_*; apply_theme() swaps the palette.
+    theme_name = StringProperty('dark')
+    col_bg = ColorProperty(theme.DARK['bg'])
+    col_surface = ColorProperty(theme.DARK['surface'])
+    col_card = ColorProperty(theme.DARK['card'])
+    col_accent = ColorProperty(theme.DARK['accent'])
+    col_text = ColorProperty(theme.DARK['text'])
+    col_text_dim = ColorProperty(theme.DARK['text_dim'])
+    col_border = ColorProperty(theme.DARK['border'])
+
     def build(self):
         self.backend = None
         self.login_popup = None
@@ -1019,15 +1132,41 @@ class MusipelagoAPWGenApp(App):
             base_path = os.path.dirname(sys.executable)
         else:
             base_path = os.path.abspath(os.path.dirname(__file__))
-        
+
         store_path = os.path.join(base_path, 'musipelago_gen.json')
         self.store = JsonStore(store_path)
-        
+
+        # Restore the saved theme (default dark) before building the UI.
+        saved = 'dark'
+        try:
+            if self.store.exists('gen_settings'):
+                saved = self.store.get('gen_settings').get('theme', 'dark')
+        except Exception as e:
+            Logger.warning(f"Settings: could not read theme: {e}")
+        self.apply_theme(saved, persist=False)
+
         # Check env vars before trying to init backend
         self.plugin_manager = PluginManager(plugin_dir=resource_path('plugins'))
         self.plugin_manager.discover_plugins()
-        
+
         return RootLayout()
+
+    def apply_theme(self, name, persist=True):
+        """Swap the live color palette (and optionally persist the choice)."""
+        name = str(name).lower()
+        if name not in theme.PALETTES:
+            name = 'dark'
+        pal = theme.get_palette(name)
+        self.theme_name = name
+        for key in theme.KEYS:
+            setattr(self, f"col_{key}", pal[key])
+        if persist:
+            try:
+                gen = self.store.get('gen_settings') if self.store.exists('gen_settings') else {}
+                gen['theme'] = name
+                self.store.put('gen_settings', **gen)
+            except Exception as e:
+                Logger.warning(f"Settings: could not save theme: {e}")
 
     def on_start(self):
         self.login_popup = LoginPopup(app_instance=self)

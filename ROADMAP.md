@@ -89,10 +89,20 @@ overflowed the fixed 100dp rows. Added `shorten: True; shorten_from: 'right'` to
 `text_line_*` Labels (matching the now-playing widget) for single-line ellipsis. Shipped on
 `fix/client-list-text-overflow` → `dev`.
 
-### B2. Visual refresh + theming — 🟡 · client · upstream?
-~20 hardcoded RGBA values scattered through `musipelagoclient.kv` with no central theme. Extract a
-`theme.kv` (or constants) for a cohesive palette/spacing, modernize cards (rounded corners via
-canvas), consistent fonts. Enables future dark/light variants with no code changes.
+### B2. Visual refresh + theming — 🟡 · gen ✅ **DONE** / client ⏳
+~20 hardcoded RGBA values scattered with no central theme. Extract constants for a cohesive
+palette/spacing, modernize cards (rounded corners via canvas), consistent fonts. Enables dark/light
+variants with no code changes.
+
+- **Gen app — ✅ done** on `feat/gen-ui-refresh` (off `dev`): new `theme.py` (DARK/LIGHT palettes +
+  `RADIUS`/spacing) bound to App `col_*` `ColorProperty`s; `musipelagoapwgen.kv` re-themed (rounded
+  `CustomListItem` cards, themed text/surfaces). Shipped alongside a **gen-UI clarity pass**: list
+  pane headers + live "N albums · M tracks" count, empty-state hints, raw URI dropped from rows
+  (now shows album duration), **visible "+ Add" / "✕ Remove"** buttons (the per-row `...` menu now
+  only appears for artists' secondary action), a **real Settings popup** (live Dark/Light theme
+  toggle persisted to the gen `JsonStore` + an About/how-to), and clearer `GeneratePopup` labels for
+  the A5 mixtape controls. 10 headless tests (`test_gen_ui.py`).
+- **Client — ⏳ not yet.** The same `theme.py` can drive `musipelagoclient.kv`; deferred.
 
 ### B3. Album art display — 🟢 · client — ✅ **DONE (display ships upstream; masking added here)**
 **Correction:** cover-art *display* was never missing — it already ships from the initial commit and
@@ -180,7 +190,8 @@ jumps up the list once online/multiworld play starts. A2/A3 are client-side togg
 6. **A4** — generator-side curation for traps/quiz (builds on A1).
 7. **A5** — randomizer controls (#mixtapes / #checks / subset+shuffle / minutes-per-pack; gen-app, builds on meta-albums) — ✅ done.
 8. **B3** — album art: display already shipped upstream; **hidden-mode art masking ✅ done**
-   (`fix/hidden-art-leak`) → **B2** — visual refresh + theming.
+   (`fix/hidden-art-leak`) → **B2** — visual refresh + theming (**gen app ✅ done** incl. a UI
+   clarity pass + real Settings panel; client theming still pending).
 9. **C3** — audio backend fallback factory (selector lives in A3's Settings surface).
 10. **C1 + C2 + C4b** — reliability phase: auto-reconnect, thread-safety, broad-`except` hardening.
     Promote this the moment online/multiworld play begins.
