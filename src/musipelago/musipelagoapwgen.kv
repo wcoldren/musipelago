@@ -191,7 +191,7 @@
     AsyncImageWithHeaders:
         web_source: root.image_source
         size_hint_x: None
-        width: self.height
+        width: dp(72)
     BoxLayout:
         orientation: 'vertical'
 
@@ -231,7 +231,7 @@
     Button:
         text: root.primary_label
         size_hint_x: None
-        width: dp(96)
+        width: dp(84)
         background_color: app.col_accent if root.list_id != 'apworld' else (0.6, 0.25, 0.25, 1)
         opacity: 1 if root.primary_label else 0
         disabled: not root.primary_label

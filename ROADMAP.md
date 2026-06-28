@@ -178,8 +178,13 @@ green confirmed on first push.)
 
 ## D. Backlog / smaller
 
-- **D1.** "Edit tracks after adding" (deferred v2 of per-track selection): an "Edit tracks" action
-  next to "Remove" on APWorld-list items, re-opening `TrackSelectionPopup` against a committed album. — 🟡 gen
+- **D1.** "Edit tracks after adding" — ✅ **DONE** (`feat/gen-edit-tracks`, off `dev`): right-pane
+  multi-track albums show an **Edit** button (Remove moved to the "…" menu) that reopens
+  `TrackSelectionPopup` pre-checked to the current tracks. **Non-lossy** — `add_apworld_item` stamps a
+  session-only `album._all_tracks`, so the editor lists every original track and you can re-add ones
+  you removed. Shipped alongside: row de-cramping (smaller thumb/button), "Create New Album" →
+  **"Import single album"**, and folder-memory polish (last service pre-selected; `last_directory`
+  restore confirmed working).
 - **D2.** Subsonic gaps: `get_playlist_with_tracks` stub + missing pagination. — 🟡 client
 - **D3.** Settings UI + config module: window size, volume default, AP timeout, audio backend. — 🟡 client
 - **D4.** Friendlier error messages (wrap low-level exceptions with context). — 🟢 all

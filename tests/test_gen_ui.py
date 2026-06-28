@@ -70,8 +70,19 @@ def test_refresh_actions_search_artist_is_albums_with_secondary():
     assert s.primary_label == "Albums" and s.has_secondary is True
 
 
-def test_refresh_actions_apworld_is_remove():
-    s = _row("apworld", _album())
+def test_refresh_actions_apworld_multitrack_is_edit():
+    s = _row("apworld", _album())          # _album() has 2 tracks
+    s._refresh_actions()
+    assert s.primary_label == "Edit" and s.has_secondary is True
+
+
+def test_refresh_actions_apworld_singletrack_is_remove():
+    from musipelago.backends import GenericAlbum, GenericTrack
+    one = GenericAlbum(uri="a", title="a", artist="A", image_url="", total_tracks=1,
+                       album_type="Album", service="local",
+                       tracks=[GenericTrack(uri="a/0", title="t", artist="A",
+                               album_title="a", duration_ms=1000, service="local")])
+    s = _row("apworld", one)
     s._refresh_actions()
     assert s.primary_label == "Remove" and s.has_secondary is False
 
@@ -106,13 +117,13 @@ def test_on_primary_routes_plugin_row_to_host(monkeypatch):
 def test_on_primary_dispatches_to_menu_action(monkeypatch):
     monkeypatch.setattr(g, "App", types.SimpleNamespace(get_running_app=lambda: None))
     for list_id, item, expected in [
-        ("apworld", _album(), "Remove"),
+        ("apworld", _album(), "Remove"),   # has_secondary False -> Remove (single-track semantics)
         ("search", _album(), "Add to APWorld"),
         ("search", GenericArtist(uri="ar", name="B", image_url="", service="local"),
          "Show all albums"),
     ]:
         recorded = []
-        stub = types.SimpleNamespace(list_id=list_id, generic_item=item)
+        stub = types.SimpleNamespace(list_id=list_id, generic_item=item, has_secondary=False)
         stub.menu_action = lambda txt, r=recorded: r.append(txt)
         stub.on_primary = types.MethodType(g.CustomListItem.on_primary, stub)
         stub.on_primary()
@@ -122,23 +133,26 @@ def test_on_primary_dispatches_to_menu_action(monkeypatch):
 # --- ListContainer summary ------------------------------------------------
 
 def test_apworld_summary_formats_albums_and_tracks():
-    stub = types.SimpleNamespace(list_two_data=[], apworld_summary="")
-    stub.on_apworld_data = types.MethodType(g.ListContainer.on_apworld_data, stub)
+    stub = types.SimpleNamespace(list_two_data=[], apworld_summary="", apworld_data=[])
+    stub.refresh_apworld_view = types.MethodType(g.ListContainer.refresh_apworld_view, stub)
 
-    stub.on_apworld_data(stub, [_album("a", 3), _album("b", 2)])
+    stub.apworld_data = [_album("a", 3), _album("b", 2)]
+    stub.refresh_apworld_view()
     assert stub.apworld_summary == "Your APWorld — 2 albums · 5 tracks"
     assert len(stub.list_two_data) == 2
     # raw URI is no longer surfaced; line 4 is a duration, not the uri
     assert all(row["text_line_4"] != row["generic_item"].uri for row in stub.list_two_data)
 
-    stub.on_apworld_data(stub, [])
+    stub.apworld_data = []
+    stub.refresh_apworld_view()
     assert stub.apworld_summary == "Your APWorld — empty"
 
 
 def test_apworld_summary_singular_grammar():
-    stub = types.SimpleNamespace(list_two_data=[], apworld_summary="")
-    stub.on_apworld_data = types.MethodType(g.ListContainer.on_apworld_data, stub)
-    stub.on_apworld_data(stub, [_album("solo", 1)])
+    stub = types.SimpleNamespace(list_two_data=[], apworld_summary="",
+                                 apworld_data=[_album("solo", 1)])
+    stub.refresh_apworld_view = types.MethodType(g.ListContainer.refresh_apworld_view, stub)
+    stub.refresh_apworld_view()
     assert stub.apworld_summary == "Your APWorld — 1 album · 1 track"
 
 
@@ -159,6 +173,53 @@ def test_gen_settings_roundtrip_and_defaults(tmp_path):
 
     app._save_gen_setting('theme', 'light')
     app._save_gen_setting('last_directory', '/music/lib')
-    # both keys coexist (saving one must not clobber the other)
+    app._save_gen_setting('last_service', 'local_files_backend')
+    # all keys coexist (saving one must not clobber the others)
     assert app._load_gen_setting('theme') == 'light'
     assert app._load_gen_setting('last_directory') == '/music/lib'
+    assert app._load_gen_setting('last_service') == 'local_files_backend'
+
+
+# --- non-lossy track editing (ListContainer._apply_edit) -------------------
+
+def _edit_container(album):
+    stub = types.SimpleNamespace(apworld_data=[album], refreshed=0)
+    stub.refresh_apworld_view = lambda: setattr(stub, 'refreshed', stub.refreshed + 1)
+    stub._apply_edit = types.MethodType(g.ListContainer._apply_edit, stub)
+    return stub
+
+
+def _full_album(n=3):
+    a = _album("alb", n)
+    a._all_tracks = list(a.tracks)     # what add_apworld_item stamps
+    return a
+
+
+def test_apply_edit_trims_then_readds_nonlossy(monkeypatch):
+    monkeypatch.setattr(g, "App", types.SimpleNamespace(
+        get_running_app=lambda: types.SimpleNamespace(root=types.SimpleNamespace(status_text=""))))
+    album = _full_album(3)
+    c = _edit_container(album)
+
+    # uncheck the middle track
+    c._apply_edit(album, [True, False, True])
+    assert [t.uri for t in album.tracks] == ["alb/0", "alb/2"]
+    assert album.total_tracks == 2 and c.refreshed == 1
+
+    # re-check everything -> the removed track comes back (non-lossy)
+    c._apply_edit(album, [True, True, True])
+    assert [t.uri for t in album.tracks] == ["alb/0", "alb/1", "alb/2"]
+    assert album.total_tracks == 3
+
+
+def test_apply_edit_cancel_and_empty_are_noops(monkeypatch):
+    monkeypatch.setattr(g, "App", types.SimpleNamespace(
+        get_running_app=lambda: types.SimpleNamespace(root=types.SimpleNamespace(status_text=""))))
+    album = _full_album(3)
+    c = _edit_container(album)
+
+    c._apply_edit(album, None)                     # cancel
+    assert len(album.tracks) == 3 and c.refreshed == 0
+
+    c._apply_edit(album, [False, False, False])    # empty -> no-op (use Remove)
+    assert len(album.tracks) == 3 and c.refreshed == 0

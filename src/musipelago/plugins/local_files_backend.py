@@ -93,7 +93,7 @@ class CreateAlbumPopup(Popup):
     """
     def __init__(self, title, artist, on_create_callback, **kwargs):
         super().__init__(**kwargs)
-        self.title = "Create New Local Album"
+        self.title = "Import album"
         self.size_hint = (0.8, None)
         self.auto_dismiss = False
         
@@ -306,8 +306,8 @@ class LocalFilesHostUI(AbstractPluginHost):
         self.root_layout.ids.search_controls.opacity = 0
         custom_ui_data = [
             {
-                'text_line_1': 'Create New Album',
-                'text_line_2': 'Scan a folder to create a new album',
+                'text_line_1': 'Import single album',
+                'text_line_2': 'Scan one folder as an album',
                 'text_line_3': '',
                 'text_line_4': '',
                 'image_source': KIVY_ICON,
@@ -316,7 +316,7 @@ class LocalFilesHostUI(AbstractPluginHost):
             },
             {
                 'text_line_1': 'Scan Root Directory',
-                'text_line_2': f"Add every album folder inside '{os.path.basename(self.backend.root_directory or '')}'",
+                'text_line_2': 'Import every album folder in your library',
                 'text_line_3': '',
                 'text_line_4': '',
                 'image_source': KIVY_ICON,

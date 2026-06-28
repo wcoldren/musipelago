@@ -588,7 +588,13 @@ class CustomListItem(BoxLayout):
         if lid == 'load_more_button':
             self.primary_label, self.has_secondary = 'Load more', False
         elif lid == 'apworld':
-            self.primary_label, self.has_secondary = 'Remove', False
+            # Multi-track albums: primary = Edit tracks, Remove in the "..." menu.
+            # Single-track: nothing to edit, so primary = Remove.
+            full = getattr(item, '_all_tracks', None) or getattr(item, 'tracks', [])
+            if len(full) > 1:
+                self.primary_label, self.has_secondary = 'Edit', True
+            else:
+                self.primary_label, self.has_secondary = 'Remove', False
         elif lid == 'search':
             if isinstance(item, GenericArtist):
                 # primary = browse the artist's albums; secondary = add them all
@@ -609,7 +615,11 @@ class CustomListItem(BoxLayout):
             app.root.load_next_page()
             return
         if self.list_id == 'apworld':
-            self.menu_action('Remove')
+            # Multi-track row: primary button edits tracks (Remove is in the menu).
+            if self.has_secondary:
+                app.root.ids.list_container.edit_album_tracks(self.generic_item)
+            else:
+                self.menu_action('Remove')
             return
         if self.list_id == 'search':
             if isinstance(self.generic_item, GenericArtist):
@@ -778,10 +788,16 @@ class TrackSelectionPopup(Popup):
     widgets, which would scramble the visible ticks on scroll. Track lists are
     small, so a non-recycling list is fine.
     """
-    def __init__(self, album: GenericAlbum, on_resolve, **kwargs):
+    def __init__(self, album: GenericAlbum, on_resolve, tracks=None,
+                 selected_uris=None, **kwargs):
         super().__init__(**kwargs)
         self.album = album
         self.on_resolve = on_resolve  # called as on_resolve(album, states_or_None)
+        # tracks to show (defaults to the album's current tracks); for editing, pass
+        # the full list so removed tracks can be re-checked. selected_uris (None =
+        # all) decides which start checked.
+        self._tracks = tracks if tracks is not None else album.tracks
+        self._selected_uris = selected_uris
         self._rows = []               # list of (CheckBox, GenericTrack)
         self.title = f"Select tracks — {album.title}"
         # ids aren't populated until the kv rule is applied; build on next frame.
@@ -791,10 +807,11 @@ class TrackSelectionPopup(Popup):
         box = self.ids.track_box
         box.clear_widgets()
         self._rows = []
-        for track in self.album.tracks:
+        for track in self._tracks:
+            checked = self._selected_uris is None or track.uri in self._selected_uris
             row = BoxLayout(orientation='horizontal', size_hint_y=None,
                             height=dp(32), spacing=dp(8))
-            checkbox = CheckBox(active=True, size_hint_x=None, width=dp(40))
+            checkbox = CheckBox(active=checked, size_hint_x=None, width=dp(40))
             secs = max(0, int((track.duration_ms or 0) / 1000))
             duration = f"{secs // 60}:{secs % 60:02d}"
             label = Label(text=f"{track.title}  ({duration})", halign='left',
@@ -834,6 +851,12 @@ class ListContainer(BoxLayout):
         self._selection_active = False
 
     def add_apworld_item(self, album_data: GenericAlbum, curate: bool = True):
+        # Remember the full incoming track list once (before any add-time trim) so
+        # the right-pane "Edit" can later re-add tracks non-destructively. Session
+        # only — not serialized; GenericAlbum is a non-slots dataclass.
+        if not getattr(album_data, '_all_tracks', None):
+            album_data._all_tracks = list(album_data.tracks)
+
         # Check for duplicates against the committed list AND anything still
         # waiting in the track-selection queue.
         if any(item.uri == album_data.uri for item in self.apworld_data) \
@@ -895,14 +918,17 @@ class ListContainer(BoxLayout):
             Logger.warning(f"APWorld: Could not find item to remove with URI: {item_uri}")
 
     def on_apworld_data(self, instance, new_data_list: list[GenericAlbum]):
-        """
-        Fires when apworld_data changes.
-        Rebuilds the *visual* list (list_two_data) from the *data* list (apworld_data).
-        """
+        """Fires when apworld_data changes — rebuild the right-side visual list."""
+        self.refresh_apworld_view()
+
+    def refresh_apworld_view(self):
+        """Rebuild the *visual* list (list_two_data) + header from apworld_data.
+        Called by the on_apworld_data binding and after an in-place track edit
+        (which doesn't change the list identity, so the binding won't fire)."""
         Logger.info("APWorld: Rebuilding right-side visual list.")
         visual_list = []
         total_tracks = 0
-        for album in new_data_list:
+        for album in self.apworld_data:
             n = len(album.tracks)
             total_tracks += n
             mins = sum(t.duration_ms or 0 for t in album.tracks) // 60000
@@ -913,18 +939,40 @@ class ListContainer(BoxLayout):
                 'text_line_4': f"~{mins} min" if mins else '',
                 'image_source': album.display_image_url or album.image_url or KIVY_ICON,
                 'list_id': 'apworld',
-                'generic_item': album # Pass the object itself for the 'Remove' action
+                'generic_item': album # Pass the object itself for the 'Remove'/'Edit' action
             })
         self.list_two_data = visual_list
 
         # Update the right-pane header summary.
-        n_albums = len(new_data_list)
+        n_albums = len(self.apworld_data)
         if n_albums:
             self.apworld_summary = (
                 f"Your APWorld — {n_albums} album{'s' if n_albums != 1 else ''} "
                 f"· {total_tracks} track{'s' if total_tracks != 1 else ''}")
         else:
             self.apworld_summary = "Your APWorld — empty"
+
+    def edit_album_tracks(self, album: GenericAlbum):
+        """Open the track checklist for an already-added album. Non-lossy: shows the
+        full original track list with the currently-included ones checked."""
+        all_tracks = getattr(album, '_all_tracks', None) or album.tracks
+        selected = {t.uri for t in album.tracks}
+        TrackSelectionPopup(album=album, on_resolve=self._apply_edit,
+                            tracks=all_tracks, selected_uris=selected).open()
+
+    def _apply_edit(self, album: GenericAlbum, states):
+        # states is None on cancel; otherwise per-track booleans aligned to _all_tracks.
+        if states is None:
+            return
+        all_tracks = getattr(album, '_all_tracks', None) or album.tracks
+        selected = [t for t, on in zip(all_tracks, states) if on]
+        if not selected:   # unchecking everything is a no-op (use Remove instead)
+            App.get_running_app().root.status_text = "Keep at least one track (use Remove to drop the album)."
+            return
+        album.tracks = selected
+        album.total_tracks = len(selected)
+        self.refresh_apworld_view()
+        App.get_running_app().root.status_text = f"Updated '{album.title}' — {len(selected)} tracks."
 
 class RootLayout(BoxLayout):
     status_text = StringProperty("App started. Ready.")
@@ -1263,10 +1311,15 @@ class MusipelagoAPWGenApp(App):
                 friendly_names.append(manifest.get("name", name))
             
             self.login_popup.backend_spinner.values = friendly_names
-            self.login_popup.backend_spinner.text = friendly_names[0]
             # Store the real module names, mapped from the friendly names
             self.login_popup.friendly_to_module_map = dict(zip(friendly_names, backend_names))
-            
+
+            # Pre-select the last-used service so a remembered folder is one click away.
+            last_service = self._load_gen_setting('last_service')
+            last_friendly = next((f for f, m in zip(friendly_names, backend_names)
+                                  if m == last_service), None)
+            self.login_popup.backend_spinner.text = last_friendly or friendly_names[0]
+
             self.login_popup.status_label.text = "Please select a service."
         else:
             self.login_popup.status_label.text = "Error: No generator plugins found in 'plugins' folder."
@@ -1286,10 +1339,12 @@ class MusipelagoAPWGenApp(App):
         self.root.status_text = f"Logged into {friendly_name} as: {user_data.get('display_name', 'Unknown')}"
         # --- END MODIFY ---
 
-        # Remember the chosen folder (Local Files) so the next launch pre-fills it.
+        # Remember the chosen folder (Local Files) so the next launch pre-fills it,
+        # and the service so the spinner pre-selects it.
         chosen_dir = getattr(self.backend, 'root_directory', None)
         if chosen_dir:
             self._save_gen_setting('last_directory', chosen_dir)
+        self._save_gen_setting('last_service', self.backend.service_name)
         
         if self.backend.user_agent:
             AsyncImageWithHeaders.set_http_headers({'User-Agent': self.backend.user_agent})
