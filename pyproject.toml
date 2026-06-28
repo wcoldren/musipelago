@@ -30,6 +30,9 @@ classifiers = [
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
 
+[project.optional-dependencies]
+dev = ["pytest"]
+
 [project.scripts]
 # Syntax: command-name = "package.module:function"
 musipelago-client = "musipelago.musipelago_client:main"
@@ -55,3 +58,9 @@ exclude = [
 [project.urls]
 Homepage = "https://github.com/tepiloxtl/musipelago"
 Issues = "https://github.com/tepiloxtl/musipelago/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Tests run headless: the conftest forces the dummy SDL driver before kivy imports.
+# Client tests that need libvlc self-skip via importorskip, so the default run is
+# CI-safe without VLC installed.

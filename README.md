@@ -1,4 +1,6 @@
 # Musipelago
+[![tests](https://github.com/wcoldren/musipelago/actions/workflows/ci.yml/badge.svg)](https://github.com/wcoldren/musipelago/actions/workflows/ci.yml)
+
 Okay, I'm not great at writing catchy catchphrases or... blorby blurbs, so I'll cut to the point
 
 This has been inspired by the idea of people from Manual discord, where they make manual apworld for artist discographies, where you receive albums as items from other users, and get location checks by listening to songs within them.

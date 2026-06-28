@@ -1,0 +1,39 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    env:
+      # Headless Kivy: dummy SDL video + no arg parsing / console log.
+      SDL_VIDEODRIVER: dummy
+      KIVY_NO_ARGS: "1"
+      KIVY_NO_CONSOLELOG: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # Kivy's window provider needs a GL stack + input libs even under the dummy
+      # driver; xvfb provides a virtual display as a belt-and-suspenders fallback.
+      - name: Install system libraries for headless Kivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb libgl1 libmtdev1
+
+      - name: Install package + dev dependencies
+        run: pip install -e .[dev]
+
+      # The default suite never imports the VLC-backed client, so no libvlc is
+      # needed here. Client tests that would require it self-skip via importorskip.
+      - name: Run tests
+        run: xvfb-run -a pytest -q

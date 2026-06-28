@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os, sys, json, traceback, logging, uuid, ctypes, re, difflib
+import os, sys, json, traceback, logging, uuid, ctypes
 import requests, threading, hashlib, shutil
 
 # --- KIVY IMPORTS ---
@@ -80,7 +80,8 @@ import ssl
 # --- LOCAL IMPORTS ---
 from musipelago.client_ui_components import GenericPlaybackInfo, ItemMenu, ToastMessage
 from musipelago.utils_client import (
-    filter_to_ascii, KIVY_ICON, global_exception_handler
+    filter_to_ascii, KIVY_ICON, global_exception_handler,
+    _normalize_title, _titles_match
 )
 from musipelago.plugin_loader import PluginManager
 from musipelago.vlc_audio_player import GenericAudioPlayer
@@ -425,23 +426,8 @@ class ArchipelagoLoginPopup(Popup):
         self.json_button.disabled = False
 
 
-def _normalize_title(s):
-    """Lowercase, drop parenthetical/bracket tags (e.g. '(Remastered 2012)'), strip punctuation,
-    and collapse whitespace — so guesses match titles loosely."""
-    s = (s or "").lower()
-    s = re.sub(r"[\(\[\{].*?[\)\]\}]", " ", s)   # remove (…)/[…]/{…} annotations
-    s = re.sub(r"[^a-z0-9]+", " ", s)            # punctuation -> space
-    return " ".join(s.split()).strip()
-
-
-def _titles_match(guess, answer):
-    """True if a guessed title matches the real title (normalized equality or fuzzy ratio)."""
-    g, a = _normalize_title(guess), _normalize_title(answer)
-    if not g or not a:
-        return False
-    if g == a:
-        return True
-    return difflib.SequenceMatcher(None, g, a).ratio() >= 0.85
+# _normalize_title / _titles_match now live in utils_client (imported above) so they
+# can be unit-tested without importing the VLC-backed client module.
 
 
 # --- ToastMessage, ItemMenu, CustomListItem, ListContainer (Unchanged) ---

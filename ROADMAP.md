@@ -64,6 +64,20 @@ the **client Settings surface** that A2/C3 reuse. Shipped on `feat/client-hidden
 Optional gen-app UI to tag a subset of tracks as the "trap pool" or quiz set, emitted into the
 catalog. Builds on the existing per-track selection / meta-album curation patterns. Do after A1.
 
+### A5. Randomizer controls — #mixtapes, #tracks-as-checks, subset + shuffle — 🟡 · gen · upstream? — **rank: MEDIUM**
+Extends meta-albums (`build_meta_albums`, `musipelago_apworld_gen.py:288`) from a fixed shuffle into a
+controllable randomizer, surfaced as `GeneratePopup` controls (sibling of A4). Knobs: (a) number of
+mixtapes = pack `count`; (b) number of tracks used as checks = **sample a subset of size K from the
+pool before packing**; (c) shuffle on/off.
+
+- **Decided: gen-app controls (v1).** AP **locations are fixed at generation time**, so the check-count
+  and chosen track subset bake into the `.apworld` — they belong in the gen app, not the player YAML.
+  This obeys the "generator is a pure function of `apworld_data`" insight (no world/template/client
+  changes); the subset+shuffle happens before `build_meta_albums`, which already partitions cleanly.
+- **A5b (deferred, world+regen):** a YAML/AP-seed variant — bake the full catalog and subset+shuffle
+  per-player at AP-generation using the AP seed (more Archipelago-native, per-player variation in a
+  multiworld). Promote once online/multiworld play starts.
+
 ## B. UI / UX
 
 ### B1. Fix long-title text overflow — 🟢 · client · upstream? — ✅ **DONE**
@@ -76,6 +90,15 @@ overflowed the fixed 100dp rows. Added `shorten: True; shorten_from: 'right'` to
 ~20 hardcoded RGBA values scattered through `musipelagoclient.kv` with no central theme. Extract a
 `theme.kv` (or constants) for a cohesive palette/spacing, modernize cards (rounded corners via
 canvas), consistent fonts. Enables future dark/light variants with no code changes.
+
+### B3. Album art display — 🟢🟡 · client · upstream? — **rank: HIGH**
+Replace the placeholder Kivy glyph in the `CustomListItem` rows (`musipelagoclient.kv` ~235–289) and
+the now-playing bar with real cover art when available. The data + plumbing largely exist:
+`GenericAlbum.image_url` is populated by the Subsonic backend, and the gen app already has an
+`AsyncImageWithHeaders` widget (URL → disk-cached image, falling back to `KIVY_ICON`) that the client
+can mirror. Local-files art is extractable via `mutagen` (already a dependency — ID3 `APIC` / cover
+frames). Fall back to the current glyph when no art is found. Pairs with B2 theming. Extension ("other
+cool tokens"): surface duration / track count / album year in the row + now-playing metadata.
 
 ## C. Foundation / robustness (make play reliable)
 
@@ -102,10 +125,17 @@ Delete dead code (abandoned plyer block `local_files_backend.py:347–381`, comm
 to scoped exceptions + logging; drop the now-unused `plyer` dep from `pyproject.toml`; dedupe the
 duplicated window-config code between client and gen apps.
 
-### C5. Tests + CI — 🔴 · repo · upstream?
-No test suite today. Seed one from the verification harness written during the macOS-fix work
-(`build_meta_albums`, template rendering, JSON parse, plugin discovery) and add GitHub Actions.
-Locks in the curation features + the macOS picker/ws fixes against regressions.
+### C5. Tests + CI — 🔴 · repo · upstream? — ✅ **DONE (foundation)** on `test/ci-foundation`
+Pulled to the front (ahead of the roadmap's original "last" slot) because feature velocity had badly
+outrun the safety net. A `tests/` suite now formalizes the verification harness written during the
+feature sprint (which was otherwise stranded in a scratch dir): `build_meta_albums` partition/seed/
+collision invariants, the per-track-selection queue/filter/dedup logic, an end-to-end Jinja render +
+`py_compile` + name-uniqueness check, the guess-mode title matcher, and PluginManager discovery — 29
+tests, headless. Added `.github/workflows/ci.yml` (py 3.11 + 3.12, xvfb + dummy SDL; no libvlc needed
+— the guess matcher was extracted to `utils_client` so it tests without importing the VLC client).
+Wired `[project.optional-dependencies] dev` + `[tool.pytest.ini_options]` in `pyproject.toml`.
+(Follow-ups: client masking/now-playing tests once the client is refactored for headless import; CI
+green confirmed on first push.)
 
 ## D. Backlog / smaller
 
@@ -126,20 +156,22 @@ jumps up the list once online/multiworld play starts. A2/A3 are client-side togg
 
 0. **B1** — list-row text overflow — ✅ done.
 1. **C4a** — quick cleanups & hygiene — ✅ done (dead code, `print()`→`Logger`, dropped `plyer`
-   dep). The window-config dedupe and the broad-`except` pass (**C4b**) remain, deferred to step 8.
+   dep). The window-config dedupe and the broad-`except` pass (**C4b**) remain, deferred to step 9.
 2. **A3** — hidden-metadata / "unknown song" mode — ✅ done (client toggle; built the Settings surface).
-3. **A2** — guess-the-song mode (client toggle; builds on A3).
-4. **A1** — traps (flagship; first item needing world changes + the per-item dispatch hook).
-5. **A4** — generator-side curation for traps/quiz (builds on A1).
-6. **B2** — visual refresh + theming.
-7. **C3** — audio backend fallback factory (selector lives in A3's Settings surface).
-8. **C1 + C2 + C4b** — reliability phase: auto-reconnect, thread-safety, broad-`except` hardening.
-   Promote this the moment online/multiworld play begins.
-9. **C5** — tests + CI (seed from the existing verification harness).
+3. **A2** — guess-the-song mode (client toggle; builds on A3) — ✅ done (A2a).
+4. **C5** — tests + CI — ✅ done (foundation) — **pulled forward** from "last": feature velocity had
+   outrun the safety net, the harness was stranded in scratch, and it makes the upstream PRs reviewable.
+5. **A1** — traps (flagship; first item needing world changes + the per-item dispatch hook).
+6. **A4** — generator-side curation for traps/quiz (builds on A1).
+7. **A5** — randomizer controls (#mixtapes / #checks / subset+shuffle; gen-app, builds on meta-albums).
+8. **B3** — album art display (rank HIGH; quick visual win) → **B2** — visual refresh + theming.
+9. **C3** — audio backend fallback factory (selector lives in A3's Settings surface).
+10. **C1 + C2 + C4b** — reliability phase: auto-reconnect, thread-safety, broad-`except` hardening.
+    Promote this the moment online/multiworld play begins.
 
-**Backlog (opportunistic):** D1–D4 above; D3 is partly delivered by A3's Settings surface.
+**Backlog (opportunistic):** D1–D5 above; D3 is partly delivered by A3's Settings surface.
 **Dependencies:** A3 → A2 (reveal plumbing) and A3 → Settings surface (reused by C3, B2);
-A1 → A4; C4b travels with C1/C2.
+A1 → A4; A5 builds on meta-albums; B3 pairs with B2; C4b travels with C1/C2.
 
 ## Key code references (for implementers)
 

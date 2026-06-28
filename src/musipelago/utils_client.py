@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os, sys, json, traceback, logging
+import os, sys, json, traceback, logging, re, difflib
 from unidecode import unidecode
 import dotenv
 
@@ -49,3 +49,23 @@ def resource_path(relative_path):
 
 def filter_to_ascii(text):
     return unidecode(str(text))
+
+
+# --- Guess-mode title matching (pure; used by the client's guess feature) ---
+def _normalize_title(s):
+    """Lowercase, drop parenthetical/bracket tags (e.g. '(Remastered 2012)'), strip punctuation,
+    and collapse whitespace — so guesses match titles loosely."""
+    s = (s or "").lower()
+    s = re.sub(r"[\(\[\{].*?[\)\]\}]", " ", s)   # remove (…)/[…]/{…} annotations
+    s = re.sub(r"[^a-z0-9]+", " ", s)            # punctuation -> space
+    return " ".join(s.split()).strip()
+
+
+def _titles_match(guess, answer):
+    """True if a guessed title matches the real title (normalized equality or fuzzy ratio)."""
+    g, a = _normalize_title(guess), _normalize_title(answer)
+    if not g or not a:
+        return False
+    if g == a:
+        return True
+    return difflib.SequenceMatcher(None, g, a).ratio() >= 0.85
