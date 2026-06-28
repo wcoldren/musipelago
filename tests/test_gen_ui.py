@@ -82,6 +82,27 @@ def test_refresh_actions_load_more_button():
     assert s.primary_label == "Load more" and s.has_secondary is False
 
 
+def test_refresh_actions_plugin_row_is_actionable():
+    # Regression guard: plugin action rows (e.g. local_files) must get a button.
+    s = _row("local_files_action", "create_album_action")
+    s._refresh_actions()
+    assert s.primary_label == "Open" and s.has_secondary is False
+
+
+def test_on_primary_routes_plugin_row_to_host(monkeypatch):
+    calls = []
+    host = types.SimpleNamespace(
+        on_item_menu_click=lambda lid, item: calls.append((lid, item)) or True)
+    fake_app = types.SimpleNamespace(plugin_host_ui=host)
+    monkeypatch.setattr(g, "App", types.SimpleNamespace(get_running_app=lambda: fake_app))
+
+    stub = types.SimpleNamespace(list_id="local_files_action",
+                                 generic_item="create_album_action")
+    stub.on_primary = types.MethodType(g.CustomListItem.on_primary, stub)
+    stub.on_primary()
+    assert calls == [("local_files_action", "create_album_action")]
+
+
 def test_on_primary_dispatches_to_menu_action(monkeypatch):
     monkeypatch.setattr(g, "App", types.SimpleNamespace(get_running_app=lambda: None))
     for list_id, item, expected in [

@@ -314,7 +314,7 @@ class LocalFilesHostUI(AbstractPluginHost):
             },
             {
                 'text_line_1': 'Scan Root Directory',
-                'text_line_2': f"Scan '{self.backend.root_directory}' (Not Implemented)",
+                'text_line_2': f"Add every album folder inside '{os.path.basename(self.backend.root_directory or '')}'",
                 'text_line_3': '',
                 'text_line_4': '',
                 'image_source': KIVY_ICON,
@@ -337,8 +337,9 @@ class LocalFilesHostUI(AbstractPluginHost):
                 return True # We handled the click
 
             elif action_id == 'scan_dir_action':
-                self.root_layout.status_text = "Scan Directory feature is not yet implemented."
-                Logger.info("UI: 'Scan Directory' (Not Implemented) clicked.")
+                self.root_layout.status_text = "Scanning root directory for albums…"
+                Logger.info("UI: 'Scan Root Directory' clicked.")
+                threading.Thread(target=self._scan_root_thread).start()
                 return True # We handled the click
             
         return False
@@ -376,80 +377,125 @@ class LocalFilesHostUI(AbstractPluginHost):
         threading.Thread(target=self._scan_dir_thread, args=(chosen_path,)).start()
     # ---------------------------------------
 
+    # Audio extensions recognized by the scanner (shared by single + root scans).
+    VALID_AUDIO_EXTS = ('.mp3', '.flac', '.m4a', '.ogg', '.wma')
+
+    def _scan_one_dir(self, chosen_dir: str):
+        """Scan a single directory for audio files and read their tags.
+
+        Returns ``(track_info_list, consensus_album, consensus_artist)`` where each
+        track_info is ``(filepath, title_tag, artist_tag, duration_ms)``. Returns an
+        empty list when the folder has no supported audio. Pure of UI — safe to call
+        from a worker thread for one folder or many.
+        """
+        track_info_list = []
+        album_tags = []
+        artist_tags = []
+
+        for filename in os.listdir(chosen_dir):
+            if not filename.lower().endswith(self.VALID_AUDIO_EXTS):
+                continue
+
+            filepath = os.path.join(chosen_dir, filename)
+            title_tag = None
+            artist_tag = None
+            duration_ms = 0
+
+            try:
+                # mutagen.File detects format from header/extension; easy=True
+                # normalizes keys to 'title'/'artist'/'album' across formats.
+                audio = MutagenFile(filepath, easy=True)
+                if audio:
+                    if 'title' in audio:
+                        title_tag = audio['title'][0]
+                    if 'artist' in audio:
+                        artist_tag = audio['artist'][0]
+                        artist_tags.append(artist_tag)
+                    if 'album' in audio:
+                        album_tags.append(audio['album'][0])
+                    # audio.info.length is seconds across all mutagen types.
+                    if audio.info and audio.info.length:
+                        duration_ms = int(audio.info.length * 1000)
+            except Exception as e:
+                # Don't crash on one bad file; fall back to the filename later.
+                Logger.warning(f"LocalFiles: Could not read metadata for {filename}: {e}")
+
+            track_info_list.append((filepath, title_tag, artist_tag, duration_ms))
+
+        consensus_album = max(set(album_tags), key=album_tags.count) if album_tags else ""
+        consensus_artist = max(set(artist_tags), key=artist_tags.count) if artist_tags else ""
+        return track_info_list, consensus_album, consensus_artist
+
     def _scan_dir_thread(self, chosen_dir: str):
-        """
-        (THREAD) Scans the directory for MP3s and reads their tags.
-        """
+        """(THREAD) Scan one folder, then open the confirm popup (Create New Album)."""
         if not mutagen:
             Logger.error("Cannot scan: 'mutagen' is not installed.")
             Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', "Error: 'mutagen' is not installed."))
             return
 
-        track_info_list = [] # Stores (filepath, title_tag, artist_tag, duration_ms)
-        album_tags = []
-        artist_tags = []
-        valid_exts = ('.mp3', '.flac', '.m4a', '.ogg', '.wma')
-
         try:
-            for filename in os.listdir(chosen_dir):
-                # --- 2. CHECK EXTENSION ---
-                if not filename.lower().endswith(valid_exts):
-                    continue
-                
-                filepath = os.path.join(chosen_dir, filename)
-                
-                title_tag = None
-                artist_tag = None
-                duration_ms = 0
-                
-                try:
-                    # --- 3. USE GENERIC LOADER ---
-                    # mutagen.File detects format from header/extension.
-                    # easy=True normalizes keys to 'title', 'artist', 'album' regardless of format.
-                    audio = MutagenFile(filepath, easy=True)
-                    
-                    if audio:
-                        # Extract Tags (if present)
-                        # Mutagen returns lists for tags, e.g. ['Title']
-                        if 'title' in audio:
-                            title_tag = audio['title'][0]
-                        if 'artist' in audio:
-                            artist_tag = audio['artist'][0]
-                            artist_tags.append(artist_tag)
-                        if 'album' in audio:
-                            album_tags.append(audio['album'][0])
-                        
-                        # Extract Duration
-                        # audio.info.length is standard across all mutagen types (in seconds)
-                        if audio.info and audio.info.length:
-                            duration_ms = int(audio.info.length * 1000)
-                            
-                except Exception as e:
-                    # Don't crash on one bad file, just log and continue (will fallback to filename)
-                    Logger.warning(f"LocalFiles: Could not read metadata for {filename}: {e}")
-                
-                track_info_list.append((filepath, title_tag, artist_tag, duration_ms))
+            track_info_list, consensus_album, consensus_artist = self._scan_one_dir(chosen_dir)
 
             if not track_info_list:
                 Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', f"No supported audio files found in '{os.path.basename(chosen_dir)}'."))
                 return
 
-            # Determine consensus for Album/Artist
-            consensus_album = max(set(album_tags), key=album_tags.count) if album_tags else ""
-            consensus_artist = max(set(artist_tags), key=artist_tags.count) if artist_tags else ""
-            
             self._temp_track_info = track_info_list
             self._temp_chosen_dir = chosen_dir
-            
+
             Clock.schedule_once(
                 lambda dt: self._open_create_album_popup(
-                    consensus_album, 
+                    consensus_album,
                     consensus_artist
                 )
             )
 
         except Exception as e:
             Logger.error(f"LocalFiles: Failed to scan directory: {e}")
+            Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', f"Error: {e}"))
+
+    def _scan_root_thread(self):
+        """(THREAD) Scan every immediate subfolder of the root dir, importing each as
+        a whole album (no per-track popups). Matches the user's "I picked the folder
+        with all my albums in it" expectation."""
+        if not mutagen:
+            Logger.error("Cannot scan: 'mutagen' is not installed.")
+            Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', "Error: 'mutagen' is not installed."))
+            return
+
+        root_dir = self.backend.root_directory
+        if not root_dir or not os.path.isdir(root_dir):
+            Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', "No valid root directory set."))
+            return
+
+        try:
+            albums = []
+            total_tracks = 0
+            for name in sorted(os.listdir(root_dir)):
+                sub = os.path.join(root_dir, name)
+                if not os.path.isdir(sub):
+                    continue
+                track_info, alb, art = self._scan_one_dir(sub)
+                if not track_info:
+                    continue
+                title = alb or name                       # fall back to the folder name
+                artist = art or "Unknown Artist"
+                albums.append(self._build_album(track_info, title, artist, sub))
+                total_tracks += len(track_info)
+
+            if not albums:
+                Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', f"No album folders found in '{os.path.basename(root_dir)}'."))
+                return
+
+            def _commit(dt):
+                for album in albums:
+                    self.add_to_apworld(album, curate=False)   # whole albums, no popup
+                self.root_layout.status_text = (
+                    f"Imported {len(albums)} albums ({total_tracks} tracks).")
+            Clock.schedule_once(_commit)
+
+        except Exception as e:
+            Logger.error(f"LocalFiles: Failed to scan root: {e}")
             Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', f"Error: {e}"))
 
     def _open_create_album_popup(self, consensus_album: str, consensus_artist: str):
@@ -465,61 +511,59 @@ class LocalFilesHostUI(AbstractPluginHost):
         )
         popup.open()
 
+    def _build_album(self, track_info, title: str, artist: str, source_dir: str) -> GenericAlbum:
+        """Construct a GenericAlbum from scanned track info. URIs are stored relative
+        to the backend root so the client can resolve them on the player's disk.
+        Reused by single-folder create and the root scan."""
+        root_dir = self.backend.root_directory
+        album_uri = os.path.relpath(source_dir, root_dir).replace("\\", "/")
+
+        generic_tracks = []
+        for filepath, title_tag, artist_tag, duration_ms in track_info:
+            track_title = title_tag or os.path.splitext(os.path.basename(filepath))[0]
+            track_artist = artist_tag or artist
+            track_uri = os.path.relpath(filepath, root_dir).replace("\\", "/")
+            generic_tracks.append(GenericTrack(
+                uri=track_uri,
+                title=track_title,
+                artist=track_artist,
+                album_title=title,
+                duration_ms=duration_ms,
+                service='local'
+            ))
+
+        return GenericAlbum(
+            uri=album_uri,
+            title=title,
+            artist=artist,
+            image_url="",
+            total_tracks=len(generic_tracks),
+            album_type="Album",
+            service='local',
+            tracks=generic_tracks
+        )
+
     def on_album_popup_create(self, popup_instance: Popup, new_album_title: str, new_artist_name: str):
         """
         (MAIN THREAD) Callback from the CreateAlbumPopup.
         This is where we finally create the GenericAlbum.
         """
         try:
-            root_dir = self.backend.root_directory
-            
-            # 1. Create album URI (relative path)
-            album_uri = os.path.relpath(self._temp_chosen_dir, root_dir).replace("\\", "/")
-            
-            # 2. Create track list
-            generic_tracks = []
-            for filepath, title_tag, artist_tag, duration_ms in self._temp_track_info:
-                # Use tag, or fallback to filename
-                track_title = title_tag or os.path.splitext(os.path.basename(filepath))[0]
-                
-                # Use tag, or fallback to album artist
-                track_artist = artist_tag or new_artist_name
-                
-                # Create track URI (relative path)
-                track_uri = os.path.relpath(filepath, root_dir).replace("\\", "/")
-                
-                generic_tracks.append(GenericTrack(
-                    uri=track_uri,
-                    title=track_title,
-                    artist=track_artist,
-                    album_title=new_album_title,
-                    duration_ms=duration_ms,
-                    service='local'
-                ))
-                
-            # 3. Create the album
-            new_album = GenericAlbum(
-                uri=album_uri,
-                title=new_album_title,
-                artist=new_artist_name,
-                image_url="",
-                total_tracks=len(generic_tracks),
-                album_type="Album",
-                service='local',
-                tracks=generic_tracks
-            )
-            
-            # 4. Add to the APWorld (right pane)
+            new_album = self._build_album(
+                self._temp_track_info, new_album_title, new_artist_name,
+                self._temp_chosen_dir)
+
+            # Add to the APWorld (right pane) — single create still offers curation.
             self.add_to_apworld(new_album)
-            
+
             self.root_layout.status_text = f"Added album '{new_album.title}'."
-            
+
         except Exception as e:
             Logger.error(f"LocalFiles: Failed to create album: {e}")
             self.root_layout.status_text = "Error creating album. Check logs."
-            
+
         finally:
-            # 5. Clean up temp data and close popup
+            # Clean up temp data and close popup
             self._temp_track_info = []
             self._temp_chosen_dir = ""
             popup_instance.dismiss()
