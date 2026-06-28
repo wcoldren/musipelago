@@ -13,20 +13,59 @@ Workflow: each item lands on its own `feat/…`/`fix/…` branch off `main`, mer
 
 ## A. Gameplay mechanics (the fun stuff)
 
-### A1. Traps — "listen to N trap songs before continuing" — 🟡 · world+client · upstream?
-Trap items are already scaffolded but disabled: `apworld_template/Items.py.j2` has commented
-`"Forcefem Trap"/"Speed Change Trap"` under `junk_items`, and `ItemClassification.trap` is
-supported. The blocker is that the **client has no per-item dispatch** — `_sync_owned_items`
-(`musipelago_client.py:865`) only special-cases `"Album finished!"`.
+### A1. Traps — receive a trap item, suffer an effect — 🟡 · world+client · upstream?
 
-- **world/data:** uncomment/define trap items + weights; add options `EnableTraps` (Toggle) and
-  `TrapSongCount` (Range) in `Options.py.j2`, thread through `MusipelagoOptions` and
-  `fill_slot_data` (`__init__.py.j2:113`); include an item→classification map in `slot_data`.
-- **client:** add a dispatch hook in `_sync_owned_items` (~`:893`) → new
-  `AbstractClientHost.on_trap_received(name, meta)` (`backends.py`); the local-files/subsonic
-  client implements a modal that locks input and force-plays N tracks before resuming.
-- **design choice:** trap songs = random from the library at trigger time (simplest) **or** a
-  curated "trap pool" chosen at generate time (see A4). Recommend starting random, add curation later.
+**A1-dispatch — once-only dispatch infrastructure — ✅ DONE** on `feat/traps-dispatch` (off `dev`).
+The scaffolding was far thinner than "uncomment two items"; the review found:
+- `create_junk_items` only pooled `ItemClassification.filler`, so trap items were **silently
+  excluded** even when uncommented (the comment lied). The stub `"Forcefem Trap"` (edgy, dropped)
+  and `"Speed Change Trap"` were commented out; there were **no options, no slot_data, and no
+  client dispatch** (`_sync_owned_items` only handled album unlocks + the victory item).
+- **The hard part is once-only firing, not the effect.** Album unlocks are persistent
+  set-membership (safe to reprocess the whole backlog); a trap is a one-shot event that must fire
+  **exactly once per received instance** and never re-fire on reconnect (server replays from
+  index 0) or app restart (`received_items` rebuilt from scratch).
+
+What shipped (content-free reference effect — a dismissable "🎵 You hit a trap!" modal):
+- **world:** `EnableTraps` (Toggle, default off) + `TrapPercentage` (Range 0–100, default 20) in
+  `Options.py.j2`; a `trap_items`/`trap_weights` pair + one reference trap `"Bad Track Trap"`
+  (`ItemClassification.trap`) in `Items.py.j2`; `create_junk_items` rewritten as the AP
+  **trap-fill split** (carve `round(N·pct/100)` of the filler budget into weighted trap picks);
+  `fill_slot_data` emits `"traps": {"enabled", "names"}` (`__init__.py.j2`). `Seed`/`Slot` were
+  already in slot_data — reused as the persistence key.
+- **client:** pure `count_pending_traps(received_items, id_to_item_name, trap_names, already_fired)`
+  in `utils_client.py` (headless-tested); `ArchipelagoClient._load_trap_state` (Connected) +
+  `_dispatch_pending_traps` (hung off `_sync_owned_items`) — mirrors `check_victory`'s count-by-id
+  idempotency but **persists a `_traps_fired` cursor per `trap_cursor::Seed::Slot`** in the
+  JsonStore, so reconnect/restart fire 0 already-handled traps. `MusipelagoClientApp.trigger_trap`
+  shows the modal **serialized one-at-a-time** (queue; mirrors the gen `TrackSelectionPopup`
+  pattern) and calls the new `AbstractClientHost.on_trap_received(name)` extension hook
+  (`backends.py`, default no-op). 10 headless tests (`test_traps.py` + `test_e2e_render.py`).
+
+**Next — concrete trap effects (register into `trigger_trap`/`on_trap_received`; deferred):**
+The dispatch table is the plumbing; effects are cheap to add. Content-need tiers:
+- **Tier 0 (no audio shipped — manipulate the player's own library/playback/UI):**
+  - **Shuffle Trap** — endure N random tracks from *your own* library before resuming (the
+    licensing-clean "rickroll": your music, not your choice). Natural flagship.
+  - **Speed Change Trap** — next track chipmunk-fast / sludge-slow (needs a new `set_rate` wrapper
+    across the vlc/ff/kivy players — none exposes rate today).
+  - **Re-mask Trap** — re-hide the next track's title/artist/art (pure reuse of A3 masking).
+  - **Repeat Trap** — next track must loop K times before its check releases.
+  - **Guess-gate Trap** — force one track behind a guess prompt (pure reuse of A2a).
+  - **Soft Re-lock Trap** — re-lock a random unlocked album for T minutes, **auto-expiring**.
+  - **Cosmetic Trap** — garish theme flip (reuse B2) / scrambled rows / shake. Harmless, funny.
+- **Tier 1 (player-supplied, opt-in):** a Settings path for *your own* trap clip (BYO rickroll).
+- **Tier 2 (bundled):** a tiny CC0/public-domain stinger, only if wanted.
+
+**Trap-safety + softlock rules (govern every effect — non-negotiable):**
+1. **No softlock** — a trap must auto-resolve and can NEVER permanently block an AP location
+   (time-boxed or always-finishable; soft re-locks must auto-expire).
+2. **No hearing/equipment hazard** — **NO sudden loud-volume traps** (a "Volume Trap" was
+   considered and **dropped**: forced loudness can hurt ears/gear). No abrupt volume jumps; any
+   audio effect stays within the user's current level.
+3. **No flashing/seizure-risk visuals** in cosmetic traps.
+
+- **A4 synergy:** a curated "trap pool" chosen at generate time (see A4) can later feed Shuffle.
 
 ### A2. Guess-the-song mode — "name the album / artist / song" — 🟡 · client/world · upstream?
 You identify the playing track (fuzzy-match on `GenericTrack.{title,artist,album_title}` via
@@ -263,6 +302,8 @@ jumps up the list once online/multiworld play starts. A2/A3 are client-side togg
 4. **C5** — tests + CI — ✅ done (foundation) — **pulled forward** from "last": feature velocity had
    outrun the safety net, the harness was stranded in scratch, and it makes the upstream PRs reviewable.
 5. **A1** — traps (flagship; first item needing world changes + the per-item dispatch hook).
+   **Dispatch + once-only infra ✅ done** (`feat/traps-dispatch`); concrete effects (Shuffle/
+   Speed/Re-mask/…) register into it next — see A1.
 6. **A4** — generator-side curation for traps/quiz (builds on A1).
 7. **A5** — randomizer controls (#mixtapes / #checks / subset+shuffle / minutes-per-pack; gen-app, builds on meta-albums) — ✅ done.
 8. **B3** — album art: display already shipped upstream; **hidden-mode art masking ✅ done**
