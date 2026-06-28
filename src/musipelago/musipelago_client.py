@@ -81,7 +81,7 @@ import ssl
 from musipelago.client_ui_components import GenericPlaybackInfo, ItemMenu, ToastMessage
 from musipelago.utils_client import (
     filter_to_ascii, KIVY_ICON, global_exception_handler,
-    _normalize_title, _titles_match
+    _normalize_title, _titles_match, unmask_row
 )
 from musipelago.plugin_loader import PluginManager
 from musipelago.vlc_audio_player import GenericAudioPlayer
@@ -764,6 +764,9 @@ class RootLayout(BoxLayout):
                 disp_title = "Unknown Track" if hidden else title
                 disp_artist = "Unknown Artist" if hidden else artists
                 disp_line3 = (text_line_3 if has_hint_bool else "???") if hidden else text_line_3
+                # The cover art would also give the answer away, so mask it too; keep the real
+                # value in raw_image_source for reveal/finish (mirrors raw_title/raw_artist).
+                real_art = local_image_path or container_data.display_image_url or container_data.image_url or KIVY_ICON
 
                 item_data = {
                     'text_line_1': disp_title,
@@ -771,13 +774,14 @@ class RootLayout(BoxLayout):
                     'text_line_3': disp_line3,
                     'text_line_4': disp_artist,
                     # Get the single, processed image URL
-                    'image_source': local_image_path or container_data.display_image_url or container_data.image_url or KIVY_ICON,
+                    'image_source': KIVY_ICON if hidden else real_art,
                     'list_id': track_uri,
                     'raw_item_type': 'track',
                     'raw_uri': track_uri,
                     'raw_title': title,
                     'raw_artist': artists,
                     'raw_line3': text_line_3,
+                    'raw_image_source': real_art,
                     'is_finished': is_finished,
                     'has_hint': has_hint_bool,
                     'can_reveal': hidden,
@@ -870,11 +874,11 @@ class RootLayout(BoxLayout):
 
     @staticmethod
     def _unmask_track_row(track_data):
-        """Restore a track row's real title/artist/location line (used on finish and on Reveal)."""
-        track_data['text_line_1'] = track_data.get('raw_title', track_data['text_line_1'])
-        track_data['text_line_4'] = track_data.get('raw_artist', track_data['text_line_4'])
-        if 'raw_line3' in track_data:
-            track_data['text_line_3'] = track_data['raw_line3']
+        """Restore a track row's real title/artist/location line + cover art (finish/Reveal).
+
+        Delegates to the pure ``unmask_row`` in utils_client so the dict transform tests
+        headlessly without importing this VLC-backed client."""
+        unmask_row(track_data)
 
     def reveal_track(self, track_uri):
         """Reveal a hidden track.

@@ -69,3 +69,19 @@ def _titles_match(guess, answer):
     if g == a:
         return True
     return difflib.SequenceMatcher(None, g, a).ratio() >= 0.85
+
+
+# --- Hidden-mode row reveal (pure; used by the client's hidden/guess feature) ---
+def unmask_row(track_data):
+    """Restore a masked track row's real title/artist/location line and cover art in place.
+
+    In hidden ("unknown song") / guess mode the row is built with title, artist, location
+    line, and cover art replaced by placeholders; the real values are stashed under the
+    raw_* keys. This restores them — called on track finish and on Reveal. Pure dict
+    transform (no Kivy) so it tests headlessly."""
+    track_data['text_line_1'] = track_data.get('raw_title', track_data['text_line_1'])
+    track_data['text_line_4'] = track_data.get('raw_artist', track_data['text_line_4'])
+    if 'raw_line3' in track_data:
+        track_data['text_line_3'] = track_data['raw_line3']
+    if 'raw_image_source' in track_data:
+        track_data['image_source'] = track_data['raw_image_source']

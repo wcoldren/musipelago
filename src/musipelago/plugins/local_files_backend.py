@@ -813,16 +813,20 @@ class LocalFilesClientHost(AbstractClientHost):
         # you're trying to recognize, so mask its title/artist in the now-playing bar too.
         if self.playback_info_widget:
             is_finished = bool(prog and prog.get('is_finished'))
-            if getattr(self.app, 'hidden_metadata', False) and not is_finished:
+            hidden = getattr(self.app, 'hidden_metadata', False) and not is_finished
+            if hidden:
                 self.playback_info_widget.track_title = "Unknown Track"
                 self.playback_info_widget.artist_album = "Unknown Artist"
             else:
                 self.playback_info_widget.track_title = title
                 self.playback_info_widget.artist_album = f"{track_obj.artist} - {track_obj.album_title}"
-            # For local files, we need to find the album art again or pass it down. 
-            # For now, let's try to grab it from the parent album in cache
+            # For local files, we need to find the album art again or pass it down.
+            # For now, let's try to grab it from the parent album in cache. In hidden mode the
+            # cover would give the answer away, so mask it too until the track is finished.
             parent_album = self.app.album_data_cache.get(parent)
-            if parent_album:
+            if hidden:
+                self.playback_info_widget.art_source = KIVY_ICON
+            elif parent_album:
                 self.playback_info_widget.art_source = parent_album.image_url
             else:
                 self.playback_info_widget.art_source = KIVY_ICON

@@ -91,14 +91,26 @@ overflowed the fixed 100dp rows. Added `shorten: True; shorten_from: 'right'` to
 `theme.kv` (or constants) for a cohesive palette/spacing, modernize cards (rounded corners via
 canvas), consistent fonts. Enables future dark/light variants with no code changes.
 
-### B3. Album art display — 🟢🟡 · client · upstream? — **rank: HIGH**
-Replace the placeholder Kivy glyph in the `CustomListItem` rows (`musipelagoclient.kv` ~235–289) and
-the now-playing bar with real cover art when available. The data + plumbing largely exist:
-`GenericAlbum.image_url` is populated by the Subsonic backend, and the gen app already has an
-`AsyncImageWithHeaders` widget (URL → disk-cached image, falling back to `KIVY_ICON`) that the client
-can mirror. Local-files art is extractable via `mutagen` (already a dependency — ID3 `APIC` / cover
-frames). Fall back to the current glyph when no art is found. Pairs with B2 theming. Extension ("other
-cool tokens"): surface duration / track count / album year in the row + now-playing metadata.
+### B3. Album art display — 🟢 · client — ✅ **DONE (display ships upstream; masking added here)**
+**Correction:** cover-art *display* was never missing — it already ships from the initial commit and
+is present on `upstream/main`. The client has its own `AsyncImageWithHeaders` (`musipelago_client.py`,
+not just the gen app), `CustomListItem.image_source` + `GenericPlaybackInfo.art_source` bound to it,
+Subsonic signed `getCoverArt` URLs, and **local-files art** via external `cover.jpg`/`folder.jpg` +
+embedded `mutagen` extraction (ID3 `APIC`, FLAC, MP4 `covr`, OGG Vorbis) in `local_files_backend.py`
+(`_find_local_art`/`_extract_art_to_cache`). `KIVY_ICON` is only the *no-art fallback*, never a
+permanent placeholder. The original entry was written on a misread of the gen-app widget.
+
+The **real gap** (fork-specific) was that A3/A2a quiz modes leaked the answer through the cover art:
+rows masked title/artist but not `image_source`; the local now-playing bar masked title/artist but not
+`art_source`. **Fixed on `fix/hidden-art-leak`** — the cover is masked to `KIVY_ICON` when hidden &
+not-finished and revealed through the existing finish/Reveal chokepoint (`unmask_row` in `utils_client`,
+mirroring the title/artist masking). Closes the last metadata leak for blind-listen mode → completes
+the **A2 + A3 quiz synergy**. (Subsonic *now-playing* masking — title + artist + art together — stays
+in the separate "Subsonic now-playing masking parity" follow-up; row art already masks for both backends.)
+
+- **Backlog extension ("other cool tokens"):** surface track count / album year in the row +
+  now-playing metadata. `total_tracks` exists; **album year needs a new `GenericAlbum` field + backend
+  changes** (heavier). Pairs with B2 theming. Not done.
 
 ## C. Foundation / robustness (make play reliable)
 
@@ -164,7 +176,8 @@ jumps up the list once online/multiworld play starts. A2/A3 are client-side togg
 5. **A1** — traps (flagship; first item needing world changes + the per-item dispatch hook).
 6. **A4** — generator-side curation for traps/quiz (builds on A1).
 7. **A5** — randomizer controls (#mixtapes / #checks / subset+shuffle; gen-app, builds on meta-albums).
-8. **B3** — album art display (rank HIGH; quick visual win) → **B2** — visual refresh + theming.
+8. **B3** — album art: display already shipped upstream; **hidden-mode art masking ✅ done**
+   (`fix/hidden-art-leak`) → **B2** — visual refresh + theming.
 9. **C3** — audio backend fallback factory (selector lives in A3's Settings surface).
 10. **C1 + C2 + C4b** — reliability phase: auto-reconnect, thread-safety, broad-`except` hardening.
     Promote this the moment online/multiworld play begins.
