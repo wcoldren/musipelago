@@ -225,6 +225,12 @@ green confirmed on first push.)
 - **D4.** Friendlier error messages (wrap low-level exceptions with context). — 🟢 all
 - **D5.** Reveal hotkey — a meta-key reveals the currently-playing track. Needs new keyboard
   handling (`Window.bind(on_key_down=…)`); none exists in the client today. — 🟢🟡 client
+- **D6.** App-icon polish — the current `resources/musipelago_icon.png` is a placeholder (a detailed
+  AI raster with text, keyed off a baked checkerboard → mushy/haloed at icon sizes). Replace with a
+  **simple, bold, flat mark** (single symbol, *no text*, limited palette, generous padding) exported
+  with **true alpha** (generate on a solid bg + remove.bg/Inkscape rather than relying on AI
+  "transparency"). Add **multi-resolution `.icns` (macOS `iconutil`) + `.ico` (Windows)** for
+  packaging. (AP's icon is crisp because it's a simple flat logo at exact sizes.) — 🟢 all
 
 ---
 
