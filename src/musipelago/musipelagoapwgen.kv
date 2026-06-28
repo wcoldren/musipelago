@@ -1,8 +1,16 @@
 #:kivy 1.0.9
 #:import dp kivy.metrics.dp
+#:import theme musipelago.theme
 # musipelagoapwgen.kv
 <RootLayout>:
     orientation: 'vertical'
+
+    canvas.before:
+        Color:
+            rgba: app.col_bg
+        Rectangle:
+            pos: self.pos
+            size: self.size
 
     BoxLayout:
         id: search_container
@@ -20,7 +28,7 @@
 
         TextInput:
             id: search_input
-            hint_text: 'Search...'
+            hint_text: 'Search albums, artists, playlists…'
             size_hint_x: 0.5
             multiline: False
             write_tab: False
@@ -28,11 +36,13 @@
         Button:
             text: 'Search'
             size_hint_x: 0.2
+            background_color: app.col_accent
             # Pass the input values to the Python function
             on_press: root.on_search_click(search_input.text, search_type_spinner.text)
 
         Button:
-            text: '...'
+            text: '⚙'
+            font_size: '20sp'
             size_hint_x: None
             width: self.height
             on_press: root.on_settings_click()
@@ -45,67 +55,128 @@
         text: 'Generate'
         size_hint_y: None # Don't stretch
         height: '48dp'
+        background_color: app.col_accent
         on_press: root.on_generate_click()
 
     Label:
         id: status_bar
         text: root.status_text
+        color: app.col_text_dim
         size_hint_y: None
         height: '30dp'
         canvas.before:
             Color:
-                rgba: 0.1, 0.1, 0.1, 1
+                rgba: app.col_surface
             Rectangle:
                 pos: self.pos
                 size: self.size
 
 <ListContainer>:
     orientation: 'horizontal'
-    spacing: 10
-    padding: 10
-    
-    RecycleView:
-        id: search_rv
-        data: root.list_one_data
-        viewclass: 'CustomListItem'
+    spacing: dp(10)
+    padding: dp(10)
 
-        canvas.before:
-            Color:
-                rgba: 0.15, 0.15, 0.15, 1
-            Rectangle:
-                pos: self.pos
-                size: self.size
+    # --- Left pane: search results ---
+    BoxLayout:
+        orientation: 'vertical'
+        spacing: dp(6)
 
-        RecycleBoxLayout:
-            default_size: None, '100dp'
-            default_size_hint: 1, None
+        Label:
+            text: 'Search results'
+            bold: True
+            color: app.col_text
             size_hint_y: None
-            height: self.minimum_height
-            orientation: 'vertical'
+            height: dp(24)
+            halign: 'left'
+            valign: 'middle'
+            text_size: self.size
 
-    RecycleView:
-        data: root.list_two_data
-        viewclass: 'CustomListItem'
+        FloatLayout:
+            RecycleView:
+                id: search_rv
+                data: root.list_one_data
+                viewclass: 'CustomListItem'
+                canvas.before:
+                    Color:
+                        rgba: app.col_surface
+                    Rectangle:
+                        pos: self.pos
+                        size: self.size
+                RecycleBoxLayout:
+                    default_size: None, dp(100)
+                    default_size_hint: 1, None
+                    size_hint_y: None
+                    height: self.minimum_height
+                    orientation: 'vertical'
 
-        canvas.before:
-            Color:
-                rgba: 0.15, 0.15, 0.15, 1
-            Rectangle:
-                pos: self.pos
-                size: self.size
+            Label:
+                text: 'Search for an album or artist above,\nthen click "+ Add" to add it.'
+                color: app.col_text_dim
+                halign: 'center'
+                valign: 'middle'
+                opacity: 0 if root.list_one_data else 1
+                size_hint: 0.8, None
+                height: self.texture_size[1]
+                text_size: self.width, None
+                pos_hint: {'center_x': 0.5, 'center_y': 0.5}
 
-        RecycleBoxLayout:
-        
-            default_size: None, '100dp'
-            default_size_hint: 1, None
+    # --- Right pane: the APWorld you're building ---
+    BoxLayout:
+        orientation: 'vertical'
+        spacing: dp(6)
+
+        Label:
+            text: root.apworld_summary
+            bold: True
+            color: app.col_text
             size_hint_y: None
-            height: self.minimum_height
-            orientation: 'vertical'
+            height: dp(24)
+            halign: 'left'
+            valign: 'middle'
+            text_size: self.size
+
+        FloatLayout:
+            RecycleView:
+                data: root.list_two_data
+                viewclass: 'CustomListItem'
+                canvas.before:
+                    Color:
+                        rgba: app.col_surface
+                    Rectangle:
+                        pos: self.pos
+                        size: self.size
+                RecycleBoxLayout:
+                    default_size: None, dp(100)
+                    default_size_hint: 1, None
+                    size_hint_y: None
+                    height: self.minimum_height
+                    orientation: 'vertical'
+
+            Label:
+                text: 'Albums you add appear here.\nThen click Generate.'
+                color: app.col_text_dim
+                halign: 'center'
+                valign: 'middle'
+                opacity: 0 if root.list_two_data else 1
+                size_hint: 0.8, None
+                height: self.texture_size[1]
+                text_size: self.width, None
+                pos_hint: {'center_x': 0.5, 'center_y': 0.5}
 
 <CustomListItem>:
     orientation: 'horizontal'
-    padding: '10dp'
-    spacing: '10dp'
+    padding: dp(10)
+    spacing: dp(10)
+
+    # Rounded card background (inset slightly so cards read as separate rows).
+    canvas.before:
+        Color:
+            rgba: app.col_card
+        RoundedRectangle:
+            pos: self.x + dp(4), self.y + dp(4)
+            size: self.width - dp(8), self.height - dp(8)
+            radius: [dp(theme.RADIUS)]
+
     AsyncImageWithHeaders:
         web_source: root.image_source
         size_hint_x: None
@@ -116,6 +187,7 @@
         Label:
             text: root.text_line_1
             font_size: '18sp'
+            color: app.col_text
             text_size: self.width, None
             halign: 'left'
             valign: 'middle'
@@ -123,14 +195,15 @@
         Label:
             text: root.text_line_2
             font_size: '14sp'
+            color: app.col_text
             text_size: self.width, None
             halign: 'left'
             valign: 'middle'
-            
+
         Label:
             text: root.text_line_3
             font_size: '12sp'
-            color: 0.8, 0.8, 0.8, 1
+            color: app.col_text_dim
             text_size: self.width, None
             halign: 'left'
             valign: 'middle'
@@ -138,15 +211,28 @@
         Label:
             text: root.text_line_4
             font_size: '12sp'
-            color: 0.8, 0.8, 0.8, 1
+            color: app.col_text_dim
             text_size: self.width, None
             halign: 'left'
             valign: 'middle'
-    
+
+    # Primary action button — label/behavior derived from the row type.
+    Button:
+        text: root.primary_label
+        size_hint_x: None
+        width: dp(96)
+        background_color: app.col_accent if root.list_id != 'apworld' else (0.6, 0.25, 0.25, 1)
+        opacity: 1 if root.primary_label else 0
+        disabled: not root.primary_label
+        on_release: root.on_primary()
+
+    # Secondary "..." menu — only artists have a second action (add all albums).
     Button:
         text: '...'
         size_hint_x: None
-        width: '48dp'
+        width: dp(40) if root.has_secondary else 0
+        opacity: 1 if root.has_secondary else 0
+        disabled: not root.has_secondary
         on_release: root.open_menu(self)
 
 <ItemMenu>:
@@ -154,7 +240,7 @@
     width: '200dp'
 
 <GeneratePopup>:
-    title: "Generation Options"
+    title: "Generate APWorld"
     size_hint: 0.8, None
     auto_dismiss: False
     height: generate_box.height + dp(64)
@@ -168,7 +254,8 @@
         height: self.minimum_height
 
         Label:
-            text: 'APWorld Name:'
+            text: 'APWorld name'
+            color: app.col_text
             size_hint_y: None
             height: '24dp'
             halign: 'left'
@@ -183,14 +270,24 @@
             write_tab: False
 
         Label:
-            text: 'This name needs to be unique for every unique APWorld. I suggest using Artist_PlayerName or some other descriptive name'
+            text: 'Must be unique per APWorld — try Artist_PlayerName or another descriptive name.'
             font_size: '12sp'
-            color: 0.8, 0.8, 0.8, 1
+            color: app.col_text_dim
             size_hint_y: None
             height: self.texture_size[1]
             text_size: self.width, None # Enable word wrapping
             valign: 'top'
             halign: 'left'
+
+        # --- Mixtape randomizer (optional) ---
+        Label:
+            text: 'Mixtape randomizer (optional)'
+            bold: True
+            color: app.col_text
+            size_hint_y: None
+            height: '24dp'
+            halign: 'left'
+            text_size: self.width, None
 
         BoxLayout:
             orientation: 'horizontal'
@@ -205,10 +302,22 @@
                 width: '40dp'
 
             Label:
-                text: 'Group tracks into randomized meta-albums'
+                text: 'Reshuffle my tracks into custom mixtapes'
+                color: app.col_text
                 halign: 'left'
                 valign: 'middle'
                 text_size: self.size
+
+        Label:
+            text: 'Otherwise each album is generated as-is. Choose how tracks are grouped:'
+            font_size: '12sp'
+            color: app.col_text_dim
+            size_hint_y: None
+            height: self.texture_size[1]
+            text_size: self.width, None
+            valign: 'top'
+            halign: 'left'
+            opacity: 1 if meta_enable.active else 0.4
 
         BoxLayout:
             orientation: 'horizontal'
@@ -218,6 +327,14 @@
             disabled: not meta_enable.active
             opacity: 1 if meta_enable.active else 0.4
 
+            Label:
+                text: 'Group into'
+                size_hint_x: None
+                width: '80dp'
+                halign: 'right'
+                valign: 'middle'
+                text_size: self.size
+
             Spinner:
                 id: meta_mode
                 text: 'N packs'
@@ -225,9 +342,9 @@
                 size_hint_x: 0.45
 
             Label:
-                text: 'Count:'
+                text: 'Amount'
                 size_hint_x: None
-                width: '50dp'
+                width: '64dp'
                 halign: 'right'
                 valign: 'middle'
                 text_size: self.size
@@ -240,22 +357,6 @@
                 write_tab: False
                 size_hint_x: 0.2
 
-            Label:
-                text: 'Seed:'
-                size_hint_x: None
-                width: '50dp'
-                halign: 'right'
-                valign: 'middle'
-                text_size: self.size
-
-            TextInput:
-                id: meta_seed
-                hint_text: 'optional'
-                input_filter: 'int'
-                multiline: False
-                write_tab: False
-                size_hint_x: 0.25
-
         BoxLayout:
             orientation: 'horizontal'
             size_hint_y: None
@@ -265,9 +366,9 @@
             opacity: 1 if meta_enable.active else 0.4
 
             Label:
-                text: 'Tracks:'
+                text: 'Use only'
                 size_hint_x: None
-                width: '60dp'
+                width: '70dp'
                 halign: 'right'
                 valign: 'middle'
                 text_size: self.size
@@ -278,11 +379,15 @@
                 input_filter: 'int'
                 multiline: False
                 write_tab: False
-                size_hint_x: 0.25
+                size_hint_x: 0.18
 
-            Widget:
+            Label:
+                text: 'tracks (blank = all)'
                 size_hint_x: None
-                width: '12dp'
+                width: '130dp'
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.size
 
             CheckBox:
                 id: meta_shuffle
@@ -291,10 +396,26 @@
                 width: '40dp'
 
             Label:
-                text: 'Shuffle tracks'
+                text: 'Shuffle'
                 halign: 'left'
                 valign: 'middle'
                 text_size: self.size
+
+            Label:
+                text: 'Seed'
+                size_hint_x: None
+                width: '44dp'
+                halign: 'right'
+                valign: 'middle'
+                text_size: self.size
+
+            TextInput:
+                id: meta_seed
+                hint_text: 'optional'
+                input_filter: 'int'
+                multiline: False
+                write_tab: False
+                size_hint_x: 0.18
 
         BoxLayout:
             orientation: 'horizontal'
@@ -323,7 +444,7 @@
         Label:
             text: 'Uncheck tracks to exclude them from this album. Unchecking everything cancels the add.'
             font_size: '12sp'
-            color: 0.8, 0.8, 0.8, 1
+            color: app.col_text_dim
             size_hint_y: None
             height: self.texture_size[1]
             text_size: self.width, None
