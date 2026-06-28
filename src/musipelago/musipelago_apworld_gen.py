@@ -3,6 +3,7 @@ import os, sys, json, zipfile, ctypes
 import requests, threading, hashlib, shutil
 import dataclasses
 import random
+import subprocess
 
 from musipelago.utils import resource_path
 from musipelago import theme as theme
@@ -365,6 +366,36 @@ def build_meta_albums(albums, *, mode, count, seed=None, subset=None, shuffle=Tr
     return metas
 
 
+def _open_path(path):
+    """Open a folder in the OS file manager (cross-platform, best-effort)."""
+    try:
+        if sys.platform == 'darwin':
+            subprocess.Popen(['open', path])
+        elif os.name == 'nt':
+            os.startfile(path)  # type: ignore[attr-defined]
+        else:
+            subprocess.Popen(['xdg-open', path])
+    except Exception as e:
+        Logger.warning(f"Generate: could not open folder {path}: {e}")
+
+
+def build_starter_yaml(apworld_name):
+    """A minimal, ready-to-edit Archipelago YAML for a generated Musipelago world.
+    Pure (testable). The slot name is capped at 16 chars (AP truncates it); the
+    game key must equal the apworld's game name `Musipelago_<name>`."""
+    game = f"Musipelago_{apworld_name}"
+    slot = apworld_name[:16] or "Player1"
+    return (
+        f"# Starter YAML for {game}. Edit the slot name/options as you like, then\n"
+        f"# build a seed:  ~/repos/AP/games/musipelago/gen.sh <this-world>.apworld\n"
+        f"name: {slot}\n"
+        f"game: {game}\n"
+        f"{game}:\n"
+        f"  StartingAlbum: album_001\n"
+        f"  AllowPlayingAnyTrack: true\n"
+    )
+
+
 class GeneratePopup(Popup):
     apworld_data = ObjectProperty(None) # This will be a list of GenericAlbum
 
@@ -388,7 +419,7 @@ class GeneratePopup(Popup):
         """Read the meta-album controls from the popup. Returns a dict; when
         disabled (or controls absent) the generator uses the real albums."""
         ids = self.ids
-        if 'meta_enable' not in ids or not ids.meta_enable.active:
+        if 'meta_enable' not in ids or ids.meta_enable.state != 'down':
             return {'enabled': False}
         mode = {
             'N packs': 'packs',
@@ -406,7 +437,7 @@ class GeneratePopup(Popup):
             subset = int(subset_text) if subset_text else None
         except ValueError:
             subset = None
-        shuffle = ids.meta_shuffle.active if 'meta_shuffle' in ids else True
+        shuffle = ids.meta_shuffle.state == 'down' if 'meta_shuffle' in ids else True
         return {'enabled': True, 'mode': mode, 'count': count, 'seed': seed,
                 'subset': subset, 'shuffle': shuffle}
 
@@ -417,8 +448,11 @@ class GeneratePopup(Popup):
         
         try:
             template_dir = resource_path('apworld_template')
-            base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
-            output_dir = os.path.join(base_dir, "output", "Musipelago_" + apworld_name)
+            # Write to the user's remembered output folder (default ~/Musipelago),
+            # not buried in the package. Artifacts (.apworld/.json/.yaml) are siblings
+            # in this root; output_dir holds the rendered world files for zipping.
+            base_dir = app.output_root()
+            output_dir = os.path.join(base_dir, "Musipelago_" + apworld_name)
 
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
@@ -545,11 +579,49 @@ class GeneratePopup(Popup):
                         zipf.write(file_path, arcname)
             
             Logger.info(f"Generate: .apworld file created successfully.")
-            Clock.schedule_once(lambda dt: setattr(app.root, 'status_text', f"Generation complete for '{apworld_name}'!"))
+
+            # Write a ready-to-edit starter YAML next to the artifacts.
+            yaml_path = os.path.join(parent_dir, f"{os.path.basename(output_dir)}.yaml")
+            with open(yaml_path, 'w', encoding='utf-8') as f:
+                f.write(build_starter_yaml(apworld_name))
+
+            Clock.schedule_once(lambda dt: setattr(
+                app.root, 'status_text',
+                f"Generated '{apworld_name}' → {parent_dir}"))
+            Clock.schedule_once(lambda dt: self._show_results(
+                parent_dir, zip_filename, json_filename, os.path.basename(yaml_path)))
 
         except Exception as e:
             Clock.schedule_once(lambda dt: setattr(app.root, 'status_text', "Generation failed. Check logs."))
             Logger.error(f"Generate: Failed during file processing: {e}")
+
+    def _show_results(self, folder, apworld_name, json_name, yaml_name):
+        """Post-generation dialog: where the files are + what to do next."""
+        panel = BoxLayout(orientation='vertical', spacing='10dp', padding='10dp')
+        body = Label(
+            markup=True, halign='left', valign='top',
+            text=("[b]Generated![/b]  Saved to:\n"
+                  f"{folder}\n\n"
+                  f"• [b]{apworld_name}[/b] — the world\n"
+                  f"• [b]{json_name}[/b] — the catalog you load in the client\n"
+                  f"• [b]{yaml_name}[/b] — a starter YAML to edit\n\n"
+                  "[b]Next:[/b] build a playable seed with\n"
+                  f"  ~/repos/AP/games/musipelago/gen.sh \"{folder}/{apworld_name}\"\n"
+                  "then host it (MultiServer) and connect the client with the catalog."))
+        body.bind(size=lambda lbl, *_: setattr(lbl, 'text_size', lbl.size))
+        panel.add_widget(body)
+
+        row = BoxLayout(size_hint_y=None, height='44dp', spacing='10dp')
+        open_btn = Button(text='Open folder')
+        open_btn.bind(on_release=lambda *_: _open_path(folder))
+        close_btn = Button(text='Close')
+        row.add_widget(open_btn)
+        row.add_widget(close_btn)
+        panel.add_widget(row)
+
+        popup = Popup(title="APWorld generated", content=panel, size_hint=(0.8, 0.6))
+        close_btn.bind(on_release=popup.dismiss)
+        popup.open()
 
 class ItemMenu(DropDown):
     caller = ObjectProperty(None) 
@@ -811,7 +883,9 @@ class TrackSelectionPopup(Popup):
             checked = self._selected_uris is None or track.uri in self._selected_uris
             row = BoxLayout(orientation='horizontal', size_hint_y=None,
                             height=dp(32), spacing=dp(8))
-            checkbox = CheckBox(active=checked, size_hint_x=None, width=dp(40))
+            # Brighten the tick so it reads on the dark popup background.
+            checkbox = CheckBox(active=checked, size_hint_x=None, width=dp(40),
+                                color=(1, 1, 1, 1))
             secs = max(0, int((track.duration_ms or 0) / 1000))
             duration = f"{secs // 60}:{secs % 60:02d}"
             label = Label(text=f"{track.title}  ({duration})", halign='left',
@@ -1153,6 +1227,30 @@ class RootLayout(BoxLayout):
         about.bind(size=lambda lbl, *_: setattr(lbl, 'text_size', lbl.size))
         panel.add_widget(about)
 
+        # Output folder: where generated worlds are written (remembered).
+        out_row = BoxLayout(size_hint_y=None, height='44dp', spacing='10dp')
+        out_lbl = Label(text=f"Output: {app.output_root()}", halign='left', valign='middle',
+                        shorten=True, shorten_from='left')
+        out_lbl.bind(size=lambda lbl, *_: setattr(lbl, 'text_size', lbl.size))
+
+        def _change_output(*_):
+            from musipelago.plugins.local_files_backend import DirectoryPickerPopup
+
+            def _picked(path):
+                if path and os.path.isdir(path):
+                    app._save_gen_setting('output_dir', path)
+                    out_lbl.text = f"Output: {path}"
+            start = app.output_root()
+            if not os.path.isdir(start):
+                start = os.path.expanduser('~')
+            DirectoryPickerPopup(initial_path=start, on_selection=_picked).open()
+
+        change_btn = Button(text='Change…', size_hint_x=None, width='100dp')
+        change_btn.bind(on_release=_change_output)
+        out_row.add_widget(out_lbl)
+        out_row.add_widget(change_btn)
+        panel.add_widget(out_row)
+
         popup = Popup(title="Settings", content=panel, size_hint=(0.7, 0.7),
                       auto_dismiss=True)
 
@@ -1247,6 +1345,10 @@ class MusipelagoAPWGenApp(App):
         except Exception as e:
             Logger.warning(f"Settings: could not read '{key}': {e}")
         return default
+
+    def output_root(self):
+        """Folder where generated worlds are written (remembered; default ~/Musipelago)."""
+        return self._load_gen_setting('output_dir', os.path.expanduser('~/Musipelago'))
 
     def _save_gen_setting(self, key, value):
         """Merge a single value into `gen_settings` (preserves the other keys)."""
