@@ -40,6 +40,19 @@ def test_gen_kv_parses():
     Builder.load_file(kv)          # raises on a malformed rule
 
 
+def test_locked_icon_asset_exists():
+    import os
+    import musipelago.utils as u
+    assert os.path.isfile(u.LOCKED_ICON)
+
+
+def test_client_kv_parses_with_locked_icon_import():
+    import os
+    from kivy.lang import Builder
+    kv = os.path.join(os.path.dirname(g.__file__), "musipelagoclient.kv")
+    Builder.load_file(kv)          # exercises the #:import LOCKED_ICON + album-art rule
+
+
 # --- CustomListItem derived action affordances ----------------------------
 
 def _row(list_id, item):

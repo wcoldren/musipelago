@@ -30,6 +30,9 @@ def resource_path(relative_path):
 # Kept under the name KIVY_ICON so the many art-fallback call sites need no change.
 KIVY_ICON = resource_path(os.path.join('resources', 'album_placeholder.png'))
 
+# Placeholder shown for locked (not-yet-unlocked) albums in the client list.
+LOCKED_ICON = resource_path(os.path.join('resources', 'locked_placeholder.png'))
+
 # --- Jinja2 Filters ---
 
 def filter_to_ascii(text):
