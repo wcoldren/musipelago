@@ -246,7 +246,12 @@ class LoginPopup(Popup):
         Logger.info(f"LoginPopup: Authenticating with {selected_backend_name}")
         self.login_button.disabled = True
         self.status_label.text = "Initializing login..."
-        
+
+        # Pre-fill the remembered folder (Local Files) so get_login_ui starts there.
+        last_dir = self.app._load_gen_setting('last_directory')
+        if last_dir and hasattr(self.app.backend, 'root_directory'):
+            self.app.backend.root_directory = last_dir
+
         # 3. Ask the backend for its login UI (this logic is unchanged)
         try:
             login_widget = self.app.backend.get_login_ui()
@@ -583,7 +588,7 @@ class CustomListItem(BoxLayout):
         if lid == 'load_more_button':
             self.primary_label, self.has_secondary = 'Load more', False
         elif lid == 'apworld':
-            self.primary_label, self.has_secondary = '✕ Remove', False
+            self.primary_label, self.has_secondary = 'Remove', False
         elif lid == 'search':
             if isinstance(item, GenericArtist):
                 # primary = browse the artist's albums; secondary = add them all
@@ -1178,19 +1183,31 @@ class MusipelagoAPWGenApp(App):
         self.store = JsonStore(store_path)
 
         # Restore the saved theme (default dark) before building the UI.
-        saved = 'dark'
-        try:
-            if self.store.exists('gen_settings'):
-                saved = self.store.get('gen_settings').get('theme', 'dark')
-        except Exception as e:
-            Logger.warning(f"Settings: could not read theme: {e}")
-        self.apply_theme(saved, persist=False)
+        self.apply_theme(self._load_gen_setting('theme', 'dark'), persist=False)
 
         # Check env vars before trying to init backend
         self.plugin_manager = PluginManager(plugin_dir=resource_path('plugins'))
         self.plugin_manager.discover_plugins()
 
         return RootLayout()
+
+    def _load_gen_setting(self, key, default=None):
+        """Read a single value from the persisted `gen_settings` block."""
+        try:
+            if self.store.exists('gen_settings'):
+                return self.store.get('gen_settings').get(key, default)
+        except Exception as e:
+            Logger.warning(f"Settings: could not read '{key}': {e}")
+        return default
+
+    def _save_gen_setting(self, key, value):
+        """Merge a single value into `gen_settings` (preserves the other keys)."""
+        try:
+            gen = self.store.get('gen_settings') if self.store.exists('gen_settings') else {}
+            gen[key] = value
+            self.store.put('gen_settings', **gen)
+        except Exception as e:
+            Logger.warning(f"Settings: could not save '{key}': {e}")
 
     def apply_theme(self, name, persist=True):
         """Swap the live color palette (and optionally persist the choice)."""
@@ -1202,12 +1219,7 @@ class MusipelagoAPWGenApp(App):
         for key in theme.KEYS:
             setattr(self, f"col_{key}", pal[key])
         if persist:
-            try:
-                gen = self.store.get('gen_settings') if self.store.exists('gen_settings') else {}
-                gen['theme'] = name
-                self.store.put('gen_settings', **gen)
-            except Exception as e:
-                Logger.warning(f"Settings: could not save theme: {e}")
+            self._save_gen_setting('theme', name)
 
     def restart_login(self):
         """Tear down the current backend/session and return to service selection.
@@ -1225,9 +1237,9 @@ class MusipelagoAPWGenApp(App):
         except Exception as e:
             Logger.warning(f"Settings: could not clear lists: {e}")
 
-        # Local Files hides the search bar in setup_ui — restore it for the next backend.
+        # Local Files hides the search inputs in setup_ui — restore them for the next backend.
         try:
-            sc = self.root.ids.search_container
+            sc = self.root.ids.search_controls
             sc.disabled = False
             sc.opacity = 1
         except Exception as e:
@@ -1273,6 +1285,11 @@ class MusipelagoAPWGenApp(App):
         
         self.root.status_text = f"Logged into {friendly_name} as: {user_data.get('display_name', 'Unknown')}"
         # --- END MODIFY ---
+
+        # Remember the chosen folder (Local Files) so the next launch pre-fills it.
+        chosen_dir = getattr(self.backend, 'root_directory', None)
+        if chosen_dir:
+            self._save_gen_setting('last_directory', chosen_dir)
         
         if self.backend.user_agent:
             AsyncImageWithHeaders.set_http_headers({'User-Agent': self.backend.user_agent})

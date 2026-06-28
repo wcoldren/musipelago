@@ -300,8 +300,10 @@ class LocalFilesHostUI(AbstractPluginHost):
     def setup_ui(self):
         # ... (implementation unchanged)
         Logger.info("LocalFilesHostUI: Setting up custom 'Local Files' UI.")
-        self.root_layout.ids.search_container.disabled = True
-        self.root_layout.ids.search_container.opacity = 0
+        # Hide only the search inputs — keep the Settings button reachable so the
+        # user can switch service / folder without force-quitting.
+        self.root_layout.ids.search_controls.disabled = True
+        self.root_layout.ids.search_controls.opacity = 0
         custom_ui_data = [
             {
                 'text_line_1': 'Create New Album',

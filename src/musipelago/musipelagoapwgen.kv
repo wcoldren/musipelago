@@ -20,31 +20,38 @@
         padding: '4dp'
         spacing: '5dp'
 
-        Spinner:
-            id: search_type_spinner
-            text: 'album'
-            values: ['album', 'artist', 'playlist']
-            size_hint_x: 0.2
+        # Search inputs live in their own box so a backend (e.g. Local Files) can
+        # hide them while the Settings button stays reachable.
+        BoxLayout:
+            id: search_controls
+            orientation: 'horizontal'
+            size_hint_x: 1
+            spacing: '5dp'
 
-        TextInput:
-            id: search_input
-            hint_text: 'Search albums, artists, playlists…'
-            size_hint_x: 0.5
-            multiline: False
-            write_tab: False
+            Spinner:
+                id: search_type_spinner
+                text: 'album'
+                values: ['album', 'artist', 'playlist']
+                size_hint_x: 0.25
+
+            TextInput:
+                id: search_input
+                hint_text: 'Search albums, artists, playlists…'
+                size_hint_x: 0.55
+                multiline: False
+                write_tab: False
+
+            Button:
+                text: 'Search'
+                size_hint_x: 0.2
+                background_color: app.col_accent
+                # Pass the input values to the Python function
+                on_press: root.on_search_click(search_input.text, search_type_spinner.text)
 
         Button:
-            text: 'Search'
-            size_hint_x: 0.2
-            background_color: app.col_accent
-            # Pass the input values to the Python function
-            on_press: root.on_search_click(search_input.text, search_type_spinner.text)
-
-        Button:
-            text: '⚙'
-            font_size: '20sp'
+            text: 'Settings'
             size_hint_x: None
-            width: self.height
+            width: '96dp'
             on_press: root.on_settings_click()
 
     ListContainer:
@@ -96,6 +103,8 @@
                 id: search_rv
                 data: root.list_one_data
                 viewclass: 'CustomListItem'
+                size_hint: 1, 1
+                pos_hint: {'x': 0, 'y': 0}
                 canvas.before:
                     Color:
                         rgba: app.col_surface
@@ -139,6 +148,8 @@
             RecycleView:
                 data: root.list_two_data
                 viewclass: 'CustomListItem'
+                size_hint: 1, 1
+                pos_hint: {'x': 0, 'y': 0}
                 canvas.before:
                     Color:
                         rgba: app.col_surface
