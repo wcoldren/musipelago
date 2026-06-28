@@ -98,6 +98,7 @@ from musipelago.plugin_loader import PluginManager
 from musipelago.utils_client import (
     KIVY_ICON,
     _titles_match,
+    count_pending_traps,
     global_exception_handler,
     unmask_row,
 )
@@ -1145,6 +1146,11 @@ class ArchipelagoClient:
         self.id_to_location_name = {}
         self.app_is_ready = False
         self.experimental_victory = experimental_victory
+        # Trap dispatch state (set from slot_data on Connected). `_traps_fired` is the
+        # persisted once-only cursor: how many trap instances we've already acted on.
+        self.trap_names = set()
+        self._trap_key = None
+        self._traps_fired = 0
         self.victory_reported = False
 
     def start_client_loop(self):
@@ -1242,7 +1248,69 @@ class ArchipelagoClient:
                             f"AP: Received item '{item_name}' but its URI '{uri}' is not in the album cache."
                         )
 
+        self._dispatch_pending_traps()
         self.check_victory()
+
+    def _load_trap_state(self, slot_data):
+        """Read trap config from slot_data and load the persisted once-only cursor.
+
+        Called from the Connected handler. The cursor is keyed by Seed+Slot so each seed
+        tracks its own fired-trap count and a replayed backlog (reconnect/restart) never
+        re-fires already-handled traps."""
+        traps = slot_data.get("traps", {}) or {}
+        self.trap_names = set(traps.get("names", []))
+        self.app.traps_enabled = bool(traps.get("enabled", False))
+
+        seed = slot_data.get("Seed", "?")
+        slot = slot_data.get("Slot", self.slot_id)
+        self._trap_key = f"trap_cursor::{seed}::{slot}"
+        self._traps_fired = 0
+        try:
+            store = getattr(self.app, "store", None)
+            if store is not None and store.exists(self._trap_key):
+                self._traps_fired = int(store.get(self._trap_key).get("count", 0))
+        except Exception as e:
+            Logger.warning(f"AP: Could not load trap cursor: {e}")
+        Logger.info(
+            f"AP: Traps {'enabled' if self.app.traps_enabled else 'disabled'}; "
+            f"cursor {self._trap_key} = {self._traps_fired} fired."
+        )
+
+    def _dispatch_pending_traps(self):
+        """Fire any newly-received traps exactly once, then persist the cursor.
+
+        Mirrors check_victory's count-by-id idempotency but is persisted: we recount trap
+        instances in received_items and only act on those beyond `_traps_fired`. Safe to call
+        on every sync — a reconnect (server replays from index 0) or app restart yields a
+        delta of 0 for traps already handled."""
+        if not self.app_is_ready or not self.id_to_item_name or not self.trap_names:
+            return
+
+        pending = count_pending_traps(
+            self.received_items, self.id_to_item_name, self.trap_names, self._traps_fired
+        )
+        if pending <= 0:
+            return
+
+        # Resolve the names of just the new traps (the tail beyond the cursor) for the effect.
+        trap_seq = [
+            self.id_to_item_name.get(it.get("item"))
+            for it in self.received_items
+            if self.id_to_item_name.get(it.get("item")) in self.trap_names
+        ]
+        new_traps = trap_seq[self._traps_fired :]
+
+        self._traps_fired += pending
+        try:
+            store = getattr(self.app, "store", None)
+            if store is not None and self._trap_key:
+                store.put(self._trap_key, count=self._traps_fired)
+        except Exception as e:
+            Logger.warning(f"AP: Could not persist trap cursor: {e}")
+
+        for name in new_traps:
+            Logger.info(f"AP: Trap received: {name}")
+            Clock.schedule_once(lambda dt, n=name: self.app.trigger_trap(n))
 
     def check_victory(self):
         """
@@ -1367,6 +1435,7 @@ class ArchipelagoClient:
                         self.app.allow_playing_any_track = bool(
                             options.get("AllowPlayingAnyTrack", 0)
                         )
+                        self._load_trap_state(slot_data)
                         self.missing_locations = set(packet.get("missing_locations", []))
                         self.checked_locations = set(packet.get("checked_locations", []))
                         self.received_connected = True
@@ -1635,6 +1704,9 @@ class MusipelagoClientApp(App):
         self.json_path = None
         self.hidden_metadata = False  # "unknown song" practice mode (client-side toggle)
         self.guess_mode = False  # earn a track's check by correctly naming it (client-side toggle)
+        self.traps_enabled = False  # set from slot_data on connect
+        self._trap_modal_queue = []  # pending trap effects, shown one at a time
+        self._trap_modal_open = False
         self._current_track_container_uri = (
             None  # last album whose tracks are shown (for re-render)
         )
@@ -1833,6 +1905,57 @@ class MusipelagoClientApp(App):
 
     def _remove_toast(self, animation, widget):
         Window.remove_widget(widget)
+
+    def trigger_trap(self, name):
+        """Entry point for a received trap (called on the UI thread by the AP client).
+
+        Shows the reference effect — a dismissable modal — serialized one-at-a-time so a
+        backlog of pending traps doesn't stack modals, and notifies the active backend host
+        so it can layer a backend-specific effect (force-play, etc.) later. The concrete
+        effects (Shuffle / Speed / Re-mask …) are tracked in ROADMAP A1; this dispatch is the
+        once-only plumbing they slot into."""
+        # Backend extension point (no-op by default). Kept separate from the modal so a host
+        # can react even if the modal is parked.
+        host = getattr(self, "client_host_ui", None)
+        if host is not None:
+            try:
+                host.on_trap_received(name)
+            except Exception as e:
+                Logger.warning(f"Trap: host.on_trap_received failed: {e}")
+
+        self._trap_modal_queue.append(name)
+        self._show_next_trap_modal()
+
+    def _show_next_trap_modal(self):
+        if self._trap_modal_open or not self._trap_modal_queue:
+            return
+        name = self._trap_modal_queue.pop(0)
+        self._trap_modal_open = True
+
+        box = BoxLayout(orientation="vertical", spacing=dp(12), padding=dp(16))
+        box.add_widget(
+            Label(text=f"\U0001f3b5 You hit a trap!\n\n[b]{name}[/b]", markup=True, halign="center")
+        )
+        btn = Button(text="Aw, dang", size_hint_y=None, height=dp(44))
+        box.add_widget(btn)
+        popup = Popup(
+            title="Trap!",
+            content=box,
+            size_hint=(0.7, None),
+            height=dp(220),
+            auto_dismiss=False,
+        )
+
+        def _dismiss(*_a):
+            popup.dismiss()
+
+        def _on_dismiss(*_a):
+            self._trap_modal_open = False
+            self._show_next_trap_modal()  # drain the rest of the queue, one at a time
+
+        btn.bind(on_release=_dismiss)
+        popup.bind(on_dismiss=_on_dismiss)
+        popup.open()
 
     def _populate_initial_lists(self, dt=None):
         """

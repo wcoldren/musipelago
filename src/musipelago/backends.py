@@ -297,6 +297,15 @@ class AbstractClientHost(EventDispatcher, ABC):
         """
         pass
 
+    def on_trap_received(self, name: str):
+        """
+        Called once when a trap item is received (the app shows a generic modal regardless).
+        Optional hook: override to add a backend-specific effect (e.g. force-play a random
+        library track). Must always auto-resolve — never permanently block playback or an AP
+        location (see the trap-safety/softlock rules in ROADMAP A1).
+        """
+        pass
+
     @abstractmethod
     def get_settings_ui(self) -> BoxLayout | None:
         """
