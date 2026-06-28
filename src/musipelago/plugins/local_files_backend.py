@@ -34,7 +34,7 @@ from musipelago.backends import (
     AbstractMusicBackend, AbstractPluginHost, AbstractClientHost,
     GenericAlbum, GenericArtist, GenericPlaylist, GenericTrack
 )
-from musipelago.utils import KIVY_ICON, filter_to_ascii
+from musipelago.utils import KIVY_ICON, filter_to_ascii, find_cover_in_dir
 from musipelago.client_ui_components import GenericPlaybackInfo, ItemMenu
 
 # --- Plugin-specific helper UI ---
@@ -594,6 +594,11 @@ class LocalFilesClientHost(AbstractClientHost):
                 # We look for art now, while parsing the data.
                 # This updates the 'image_url' which the UI will eventually use.
                 found_art_path = self._find_local_art(abs_album_path, cache_dir)
+                if not found_art_path and track_objects:
+                    # Synthetic/meta albums (e.g. mixtapes) have no folder of their own, so
+                    # borrow the cover from the real source folder of one of their tracks.
+                    first_track_path = os.path.normpath(os.path.join(root_dir, track_objects[0].uri))
+                    found_art_path = self._find_local_art(os.path.dirname(first_track_path), cache_dir)
                 album_dict['display_image_url'] = found_art_path or KIVY_ICON
                 # --------------------------------
                 
@@ -623,11 +628,10 @@ class LocalFilesClientHost(AbstractClientHost):
         if not os.path.isdir(album_path):
             return ""
 
-        # A. Check for External Files
-        common_names = ['cover.jpg', 'cover.png', 'folder.jpg', 'album.jpg']
-        for filename in os.listdir(album_path):
-            if filename.lower() in common_names:
-                return os.path.join(album_path, filename)
+        # A. Check for External Files (cover/folder/album/front .jpg/.jpeg/.png, AlbumArt*)
+        external = find_cover_in_dir(album_path)
+        if external:
+            return external
 
         # B. Check for Embedded Art
         if not mutagen: return ""
