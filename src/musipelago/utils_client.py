@@ -23,8 +23,6 @@ sys.excepthook = global_exception_handler
 # dotenv.load_dotenv()
 # CLIENT_ID = ...
 
-KIVY_ICON = 'data/logo/kivy-icon-64.png'
-
 # --- Helpers ---
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev, pipx, and PyInstaller """
@@ -46,6 +44,10 @@ def resource_path(relative_path):
     # Anchors to the location of THIS file (utils.py)
     base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
+
+# Default album-art placeholder (NOT the Kivy logo anymore — a neutral music-note image).
+# Kept under the name KIVY_ICON so the many art-fallback call sites need no change.
+KIVY_ICON = resource_path(os.path.join('resources', 'album_placeholder.png'))
 
 def filter_to_ascii(text):
     return unidecode(str(text))

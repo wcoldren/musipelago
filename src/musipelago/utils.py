@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
-import os, sys, json
+import os, sys, json, hashlib
 # dotenv is no longer needed here
 from unidecode import unidecode
-
-KIVY_ICON = 'data/logo/kivy-icon-64.png'
 
 # --- Helpers ---
 
@@ -27,6 +25,10 @@ def resource_path(relative_path):
     # Anchors to the location of THIS file (utils.py)
     base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
+
+# Default album-art placeholder (NOT the Kivy logo anymore — a neutral music-note image).
+# Kept under the name KIVY_ICON so the many art-fallback call sites need no change.
+KIVY_ICON = resource_path(os.path.join('resources', 'album_placeholder.png'))
 
 # --- Jinja2 Filters ---
 
@@ -61,3 +63,56 @@ def find_cover_in_dir(dirpath):
         if is_cover_filename(filename):
             return os.path.join(dirpath, filename)
     return ""
+
+
+def collect_source_covers(root_dir, track_uris):
+    """Ordered, de-duplicated cover paths from the source folders of the given track URIs.
+
+    A meta-album (mixtape) has no folder of its own, but each of its tracks still lives in a
+    real source-album folder. We resolve each track's folder and collect its cover — used to
+    build a mixtape collage. Pure (filesystem only)."""
+    if not root_dir:
+        return []
+    seen_dirs, covers = set(), []
+    for uri in track_uris:
+        track_dir = os.path.dirname(os.path.normpath(os.path.join(root_dir, uri)))
+        if track_dir in seen_dirs:
+            continue
+        seen_dirs.add(track_dir)
+        cover = find_cover_in_dir(track_dir)
+        if cover and cover not in covers:
+            covers.append(cover)
+    return covers
+
+
+def build_cover_collage(cover_paths, cache_dir, *, tile=256):
+    """Composite up to 4 covers into a 2x2 collage cached under cache_dir; return its path.
+
+    Returns '' if Pillow is unavailable, no covers are given, or compositing fails. Cached by
+    a hash of the input paths so it's only built once. Fewer than 4 covers are cycled to fill
+    the grid; each tile is center-cropped square."""
+    if not cover_paths or not cache_dir:
+        return ""
+    try:
+        from PIL import Image
+    except ImportError:
+        return ""
+    key = hashlib.md5("|".join(cover_paths).encode("utf-8")).hexdigest()
+    out_path = os.path.join(cache_dir, f"collage_{key}.jpg")
+    if os.path.exists(out_path):
+        return out_path
+    picks = (cover_paths * 4)[:4]  # cycle to fill all 4 cells
+    positions = [(0, 0), (tile, 0), (0, tile), (tile, tile)]
+    try:
+        canvas = Image.new("RGB", (tile * 2, tile * 2), (20, 22, 26))
+        for path, (x, y) in zip(picks, positions):
+            im = Image.open(path).convert("RGB")
+            w, h = im.size
+            side = min(w, h)  # center-crop to a square
+            im = im.crop(((w - side) // 2, (h - side) // 2,
+                          (w - side) // 2 + side, (h - side) // 2 + side)).resize((tile, tile))
+            canvas.paste(im, (x, y))
+        canvas.save(out_path, "JPEG", quality=88)
+        return out_path
+    except Exception:
+        return ""
