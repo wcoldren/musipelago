@@ -6,6 +6,7 @@ drive them directly. ``TrackSelectionPopup`` is replaced with a scripted fake th
 resolves with preset checkbox states, exercising the queue / filter / dedup logic
 without a GUI.
 """
+
 import types
 
 import pytest
@@ -16,15 +17,23 @@ from musipelago.backends import GenericAlbum, GenericTrack
 
 
 def track(uri, title, artist="A", dur=1000):
-    return GenericTrack(uri=uri, title=title, artist=artist,
-                        album_title="Alb", duration_ms=dur, service="local")
+    return GenericTrack(
+        uri=uri, title=title, artist=artist, album_title="Alb", duration_ms=dur, service="local"
+    )
 
 
 def album(uri, title, n):
     tracks = [track(f"{uri}/t{i}", f"Track {i}") for i in range(n)]
-    return GenericAlbum(uri=uri, title=title, artist="A", image_url="",
-                        total_tracks=n, album_type="Album", service="local",
-                        tracks=tracks)
+    return GenericAlbum(
+        uri=uri,
+        title=title,
+        artist="A",
+        image_url="",
+        total_tracks=n,
+        album_type="Album",
+        service="local",
+        tracks=tracks,
+    )
 
 
 class _Root:
@@ -41,8 +50,7 @@ def _running_app(monkeypatch):
     monkeypatch.setattr(App, "get_running_app", staticmethod(lambda: _App()))
 
 
-_METHODS = ["add_apworld_item", "_show_next_selection",
-            "_on_selection_resolve", "_finalize_add"]
+_METHODS = ["add_apworld_item", "_show_next_selection", "_on_selection_resolve", "_finalize_add"]
 
 
 class Stub:
@@ -50,7 +58,7 @@ class Stub:
     can test the logic without instantiating a Kivy widget (which needs GL)."""
 
     def __init__(self):
-        self.apworld_data = []          # plain list stands in for ListProperty
+        self.apworld_data = []  # plain list stands in for ListProperty
         self._selection_queue = []
         self._selection_active = False
         for name in _METHODS:
@@ -144,9 +152,9 @@ def test_in_flight_dedup_guard(monkeypatch):
 
     monkeypatch.setattr(g, "TrackSelectionPopup", DeferPopup)
     lc = fresh()
-    lc.add_apworld_item(album("q1", "Q1", 2))      # opens popup, q1 in-flight
+    lc.add_apworld_item(album("q1", "Q1", 2))  # opens popup, q1 in-flight
     lc.add_apworld_item(album("q1", "Q1 dup", 2))  # second q1 while first pending
-    while PENDING:                                  # drain, resolving all-checked
+    while PENDING:  # drain, resolving all-checked
         resolve, alb = PENDING.pop(0)
         resolve(alb, [True, True])
     assert uris(lc).count("q1") == 1, ("duplicate committed!", uris(lc))

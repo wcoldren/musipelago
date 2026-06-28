@@ -17,7 +17,7 @@
         orientation: 'horizontal'
         padding: '5dp'
         spacing: '10dp'
-        
+
         canvas.before:
             Color:
                 rgba: 0.12, 0.12, 0.12, 1
@@ -38,7 +38,7 @@
                 size_hint: None, None
                 size: '48dp', '48dp'
                 pos_hint: {'center_y': 0.5}
-                background_normal: '' 
+                background_normal: ''
                 background_color: (0, 0, 0, 0)
                 icon_source: 'resources/stop.png'
                 on_release: root.on_stop_click()
@@ -61,7 +61,7 @@
             size_hint_x: 1
             orientation: 'horizontal'
             padding: '5dp'
-            # Python code will replace its content with the actual widget if needed, 
+            # Python code will replace its content with the actual widget if needed,
             # but we use its space.
 
 
@@ -112,7 +112,7 @@
             Rectangle:
                 pos: self.pos
                 size: self.size
-        
+
     Label:
         id: ap_status_bar
         text: root.ap_status_text  # Will bind to a new property
@@ -128,7 +128,7 @@
 <GenericPlaybackInfo>:
     orientation: 'horizontal'
     spacing: '10dp'
-    
+
     # 1. Album Art
     AsyncImageWithHeaders:
         web_source: root.art_source
@@ -141,7 +141,7 @@
         orientation: 'vertical'
         size_hint_x: 0.4
         valign: 'middle'
-        
+
         Label:
             text: root.track_title
             font_size: '16sp'
@@ -150,7 +150,7 @@
             shorten_from: 'right'
             text_size: self.width, None
             halign: 'left'
-        
+
         Label:
             text: root.artist_album
             font_size: '12sp'
@@ -171,18 +171,18 @@
             value: root.progress_value
             size_hint_y: None
             height: '10dp'
-            
+
         BoxLayout:
             orientation: 'horizontal'
             size_hint_y: None
             height: '15dp'
-            
+
             Label:
                 text: root.current_time
                 font_size: '10sp'
                 halign: 'left'
                 text_size: self.width, None
-            
+
             Label:
                 text: root.total_time
                 font_size: '10sp'
@@ -193,7 +193,7 @@
     orientation: 'horizontal'
     spacing: 10
     padding: 10
-    
+
     RecycleView:
         id: album_rv
         data: root.list_one_data
@@ -226,7 +226,7 @@
                 size: self.size
 
         RecycleBoxLayout:
-        
+
             default_size: None, '100dp'
             default_size_hint: 1, None
             size_hint_y: None
@@ -290,7 +290,7 @@
             shorten_from: 'right'
             halign: 'left'
             valign: 'middle'
-    
+
     Button:
         text: 'Guess'
         size_hint_x: None

@@ -6,6 +6,7 @@ track's AP check. The softlock-avoidance rule (Reveal = give up still releases t
 check) lives in the client's ``complete_track`` path, not in the matcher — the matcher
 only decides whether a *guess* counts.
 """
+
 from musipelago.utils_client import _normalize_title, _titles_match
 
 

@@ -12,6 +12,7 @@ so individual test modules don't repeat the incantation:
 Because pytest imports this conftest before collecting (and thus importing) the test
 modules, setting the env vars at import time here runs before kivy is ever imported.
 """
+
 import os
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
