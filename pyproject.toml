@@ -19,7 +19,8 @@ dependencies = [
     "websockets",
     "mutagen",
     "python-vlc",
-    "unidecode"
+    "unidecode",
+    "Pillow"
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
