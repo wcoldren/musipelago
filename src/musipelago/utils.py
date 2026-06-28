@@ -35,3 +35,29 @@ def filter_to_ascii(text):
 
 def filter_py_json(value):
     return json.dumps(value)
+
+# --- Local-files cover-art discovery (pure; used by the local_files backend) ---
+# Common cover filenames, by stem. We accept .jpg/.jpeg/.png for each, plus any
+# file whose name starts with "albumart" (Windows Media Player's AlbumArt*.jpg).
+_COVER_STEMS = ('cover', 'folder', 'album', 'front')
+_COVER_EXTS = ('.jpg', '.jpeg', '.png')
+
+def is_cover_filename(name):
+    """True if a filename looks like a standalone album-cover image."""
+    low = (name or "").lower()
+    if low.startswith('albumart') and low.endswith(_COVER_EXTS):
+        return True
+    stem, ext = os.path.splitext(low)
+    return stem in _COVER_STEMS and ext in _COVER_EXTS
+
+def find_cover_in_dir(dirpath):
+    """Return the path to a cover image in dirpath, or '' if none.
+
+    Scans in sorted order so the choice is deterministic (and prefers 'album'/'cover'
+    over 'folder'/'front' alphabetically). Pure — only touches the filesystem, no Kivy."""
+    if not dirpath or not os.path.isdir(dirpath):
+        return ""
+    for filename in sorted(os.listdir(dirpath)):
+        if is_cover_filename(filename):
+            return os.path.join(dirpath, filename)
+    return ""
