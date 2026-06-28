@@ -138,7 +138,13 @@ variants with no code changes.
   order. (First pass sorted purely by tag track number, but reissues restart/duplicate those per bonus
   set — e.g. Death "Leprosy (Deluxe Reissue)" had non-unique `n/36` tags while filenames `01.`–`36.`
   were authoritative — so filename-number wins.) Was raw `os.listdir` order, which mis-ordered tracks
-  (bonus cuts interleaved) and made the victory track (`tracks[-1]`) wrong. `_build_album` also sets `display_image_url` from `find_cover_in_dir()` so
+  (bonus cuts interleaved) and made the victory track (`tracks[-1]`) wrong.
+- **Locked-album art + quiet generation** (`feat/locked-art-and-quiet-gen`, off `dev`): client album
+  rows now show a **"?" placeholder (`LOCKED_ICON`) until the album is unlocked** (`web_source` gated on
+  `is_owned`; reveals the real cover when the unlock item arrives — already-dimmed rows get the art
+  cue too). Removed the leftover debug `print()`s in `apworld_template/Items.py.j2` that spammed
+  `[Artist] [Album]` banners during generation. (Album unlock is independent/item-gated per album — no
+  linear chain.) `_build_album` also sets `display_image_url` from `find_cover_in_dir()` so
   **album covers show in the gen app** (stripped from the saved catalog; client re-derives art).
   Folder multiselect is an explicit **checklist** (Ctrl/Cmd-click was unreliable). Re-import existing
   albums to pick up the corrected order.

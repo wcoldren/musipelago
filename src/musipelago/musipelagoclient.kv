@@ -1,6 +1,7 @@
 #:kivy 1.0.9
 #:import dp kivy.metrics.dp
 #:import ButtonBehavior kivy.uix.behaviors.ButtonBehavior
+#:import LOCKED_ICON musipelago.utils.LOCKED_ICON
 
 <RootLayout>:
     orientation: 'vertical'
@@ -242,7 +243,8 @@
     opacity: 1 if root.is_owned else 0.5
 
     AsyncImageWithHeaders:
-        web_source: root.image_source
+        # Locked albums show a "?" until their unlock item arrives (is_owned flips).
+        web_source: root.image_source if root.is_owned else LOCKED_ICON
         size_hint_x: None
         width: self.height
     BoxLayout:
