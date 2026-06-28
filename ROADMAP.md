@@ -117,6 +117,13 @@ variants with no code changes.
   to `on_item_menu_click`. Also **implemented Scan Root Directory** (each subfolder → a whole album,
   no per-track popups, via `add_to_apworld(curate=False)`), and added a **Settings → "Switch service
   / folder…"** recovery path (`App.restart_login`) so a wrong pick no longer needs a force-quit.
+- **Output + handoff** (`feat/gen-output-and-yaml`, off `dev`): generated files now land in a
+  **remembered output folder** (default `~/Musipelago`, changeable in Settings) instead of buried in
+  `src/`; a **post-generation results dialog** shows the path + Open-folder + next-steps; a **starter
+  YAML** is written next to the `.apworld`; and the mixtape `CheckBox`es became **ToggleButtons** (the
+  bare checkboxes were invisible on the dark theme). The cross-app handoff is now a one-command
+  helper: **`~/repos/AP/games/musipelago/gen.sh`** (in the AP workspace repo, not the fork) takes a
+  built `.apworld` → playable AP seed (`Players: 1` verified), the first AP-workspace tooling for the fork.
 
 ### B3. Album art display — 🟢 · client — ✅ **DONE (display ships upstream; masking added here)**
 **Correction:** cover-art *display* was never missing — it already ships from the initial commit and
