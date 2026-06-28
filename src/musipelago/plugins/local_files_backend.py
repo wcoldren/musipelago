@@ -9,6 +9,8 @@ from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.button import Button
 from kivy.uix.popup import Popup
+from kivy.uix.togglebutton import ToggleButton
+from kivy.uix.scrollview import ScrollView
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.dropdown import DropDown
 from kivy.uix.progressbar import ProgressBar
@@ -90,6 +92,106 @@ class DirectoryPickerPopup(Popup):
             self.on_selection(selection)          # caller gets a list
         else:
             self.on_selection(selection[0])       # caller gets a single path
+
+class MultiFolderPopup(Popup):
+    """Pick one or more album subfolders to import via an explicit checklist.
+
+    Replaces FileChooser modifier-click multiselect (Ctrl/Cmd is unreliable +
+    platform-specific). Lists the immediate subfolders of a parent dir as
+    [x]/[ ] toggle rows; OK returns the checked paths as a list.
+    """
+    def __init__(self, start_dir, on_resolve, **kwargs):
+        super().__init__(**kwargs)
+        self.title = "Import album folders"
+        self.size_hint = (0.9, 0.9)
+        self.on_resolve = on_resolve
+        self.current = start_dir if (start_dir and os.path.isdir(start_dir)) \
+            else os.path.expanduser("~")
+        self._rows = []
+
+        root = BoxLayout(orientation='vertical', spacing=dp(8), padding=dp(10))
+
+        top = BoxLayout(size_hint_y=None, height=dp(36), spacing=dp(8))
+        self.path_lbl = Label(halign='left', valign='middle', shorten=True,
+                              shorten_from='left')
+        self.path_lbl.bind(size=lambda l, *_: setattr(l, 'text_size', l.size))
+        change_btn = Button(text="Change folder…", size_hint_x=None, width=dp(140))
+        change_btn.bind(on_release=self._change_folder)
+        top.add_widget(self.path_lbl)
+        top.add_widget(change_btn)
+        root.add_widget(top)
+
+        sel = BoxLayout(size_hint_y=None, height=dp(32), spacing=dp(8))
+        all_btn = Button(text="Select all")
+        all_btn.bind(on_release=lambda *_: self._set_all('down'))
+        none_btn = Button(text="Select none")
+        none_btn.bind(on_release=lambda *_: self._set_all('normal'))
+        sel.add_widget(all_btn)
+        sel.add_widget(none_btn)
+        root.add_widget(sel)
+
+        scroll = ScrollView(do_scroll_x=False)
+        self.box = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(2))
+        self.box.bind(minimum_height=self.box.setter('height'))
+        scroll.add_widget(self.box)
+        root.add_widget(scroll)
+
+        btns = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
+        cancel_btn = Button(text="Cancel")
+        cancel_btn.bind(on_release=self._cancel)
+        import_btn = Button(text="Import checked")
+        import_btn.bind(on_release=self._import)
+        btns.add_widget(cancel_btn)
+        btns.add_widget(import_btn)
+        root.add_widget(btns)
+
+        self.content = root
+        Clock.schedule_once(lambda dt: self._populate())
+
+    def _populate(self):
+        self.path_lbl.text = f"Folder: {self.current}"
+        self.box.clear_widgets()
+        self._rows = []
+        try:
+            subs = sorted(n for n in os.listdir(self.current)
+                          if os.path.isdir(os.path.join(self.current, n)))
+        except OSError:
+            subs = []
+        if not subs:
+            self.box.add_widget(Label(text="(no subfolders here — use Change folder…)",
+                                      size_hint_y=None, height=dp(36)))
+            return
+        for name in subs:
+            path = os.path.join(self.current, name)
+            btn = ToggleButton(text=f"[x]  {name}", state='down',
+                               size_hint_y=None, height=dp(36),
+                               halign='left', valign='middle')
+            btn.bind(size=lambda b, *_: setattr(b, 'text_size', (b.width - dp(16), None)))
+            btn.bind(state=lambda b, st, n=name: setattr(
+                b, 'text', ("[x]  " if st == 'down' else "[  ]  ") + n))
+            self.box.add_widget(btn)
+            self._rows.append((btn, path))
+
+    def _set_all(self, state):
+        for btn, _ in self._rows:
+            btn.state = state
+
+    def _change_folder(self, *_):
+        def _picked(path):
+            if path and os.path.isdir(path):
+                self.current = path
+                self._populate()
+        DirectoryPickerPopup(initial_path=self.current, on_selection=_picked).open()
+
+    def _import(self, *_):
+        selected = [path for btn, path in self._rows if btn.state == 'down']
+        self.dismiss()
+        self.on_resolve(selected)
+
+    def _cancel(self, *_):
+        self.dismiss()
+        self.on_resolve(None)
+
 
 class CreateAlbumPopup(Popup):
     """
@@ -311,7 +413,7 @@ class LocalFilesHostUI(AbstractPluginHost):
         custom_ui_data = [
             {
                 'text_line_1': 'Import album(s)',
-                'text_line_2': 'Pick one folder (named) or several at once',
+                'text_line_2': 'Tick the album folders to import',
                 'text_line_3': '',
                 'text_line_4': '',
                 'image_source': KIVY_ICON,
@@ -362,19 +464,15 @@ class LocalFilesHostUI(AbstractPluginHost):
         if not start_path or not os.path.isdir(start_path):
             start_path = os.path.expanduser("~")
             
-        Logger.info(f"LocalFiles: Opening Kivy file chooser at {start_path}")
+        Logger.info(f"LocalFiles: Opening folder checklist at {start_path}")
 
-        # Multiselect: one folder -> the confirm flow (set title/artist); many
-        # folders -> import each as a whole album (like scan-root, no per-folder popup).
-        popup = DirectoryPickerPopup(
-            initial_path=start_path,
-            on_selection=self._on_dirs_selected,
-            multiselect=True,
-        )
-        popup.open()
+        # Explicit checklist of subfolders (reliable cross-platform multiselect;
+        # Ctrl/Cmd-click in the file chooser is flaky). One checked folder -> the
+        # named confirm flow; several -> whole-album import.
+        MultiFolderPopup(start_dir=start_path, on_resolve=self._on_dirs_selected).open()
 
     def _on_dirs_selected(self, paths):
-        """Callback from the multiselect picker (receives a list of folders)."""
+        """Callback from the folder checklist (receives a list of folders)."""
         dirs = [p for p in (paths or []) if os.path.isdir(p)]
         if not dirs:
             self.root_layout.status_text = "Import cancelled (no folder selected)."
