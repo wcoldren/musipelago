@@ -124,6 +124,14 @@ variants with no code changes.
   bare checkboxes were invisible on the dark theme). The cross-app handoff is now a one-command
   helper: **`~/repos/AP/games/musipelago/gen.sh`** (in the AP workspace repo, not the fork) takes a
   built `.apworld` → playable AP seed (`Players: 1` verified), the first AP-workspace tooling for the fork.
+- **Shareable seed helper + import polish** (`feat/import-multiselect-and-seed-tool`, off `dev`): the
+  seed helper now **ships in the fork** as cross-platform **`tools/make_seed.py`** (stdlib only;
+  locates Archipelago via `--ap-dir`/`$ARCHIPELAGO_DIR`/auto), so it's not tied to one machine; the AP
+  `gen.sh` is now a thin wrapper around it. The results dialog gained a **Copy command** button (+ a
+  remembered "Archipelago folder" Settings row). **Import album(s)** now multi-selects folders (one →
+  named confirm, many → whole-album import). Readability: track-checklist `CheckBox`es → **`[x]/[ ]`
+  ToggleButton rows**, the mixtape toggle glyph → ASCII, and right-pane row labels now **ellipsize**
+  (`shorten`) instead of scrunching long titles.
 
 ### B3. Album art display — 🟢 · client — ✅ **DONE (display ships upstream; masking added here)**
 **Correction:** cover-art *display* was never missing — it already ships from the initial commit and

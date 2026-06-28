@@ -45,47 +45,51 @@ class DirectoryPickerPopup(Popup):
     A pure Kivy popup that lets the user select a directory.
     Replaces the need for tkinter or inconsistent plyer behavior.
     """
-    def __init__(self, initial_path, on_selection, **kwargs):
+    def __init__(self, initial_path, on_selection, multiselect=False, **kwargs):
         super().__init__(**kwargs)
-        self.title = "Select Album Directory"
+        self.title = "Select Album Folder(s)" if multiselect else "Select Album Directory"
         self.size_hint = (0.9, 0.9)
         self.on_selection = on_selection
-        
+        self.multiselect = multiselect
+
         layout = BoxLayout(orientation='vertical', spacing=dp(10), padding=dp(10))
-        
+
+        if multiselect:
+            layout.add_widget(Label(
+                text="Tip: Ctrl/Cmd-click (or Shift-click) to pick several album folders.",
+                size_hint_y=None, height=dp(24)))
+
         # 1. File Chooser (List View)
-        # filters=[lambda folder, filename: not filename.startswith('.')] # Optional: hide hidden files
         self.file_chooser = FileChooserListView(
             path=initial_path,
             dirselect=True, # CRITICAL: Allow directory selection
+            multiselect=multiselect,
             filters=[''] # Show directories only (mostly)
         )
         layout.add_widget(self.file_chooser)
-        
+
         # 2. Buttons
         btn_layout = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
-        
+
         cancel_btn = Button(text="Cancel", on_release=self.dismiss)
-        select_btn = Button(text="Select This Folder", on_release=self.select_current)
-        
+        select_btn = Button(
+            text="Import Selected" if multiselect else "Select This Folder",
+            on_release=self.select_current)
+
         btn_layout.add_widget(cancel_btn)
         btn_layout.add_widget(select_btn)
-        
+
         layout.add_widget(btn_layout)
         self.content = layout
 
     def select_current(self, *args):
-        # If user clicked a folder in the list, use that. 
-        # Otherwise use the currently open path.
-        selection = self.file_chooser.selection
-        if selection:
-            # selection is a list, usually [full_path]
-            path = selection[0]
-        else:
-            path = self.file_chooser.path
-            
-        self.on_selection(path)
+        # Selected entries, falling back to the currently open folder.
+        selection = list(self.file_chooser.selection) or [self.file_chooser.path]
         self.dismiss()
+        if self.multiselect:
+            self.on_selection(selection)          # caller gets a list
+        else:
+            self.on_selection(selection[0])       # caller gets a single path
 
 class CreateAlbumPopup(Popup):
     """
@@ -306,8 +310,8 @@ class LocalFilesHostUI(AbstractPluginHost):
         self.root_layout.ids.search_controls.opacity = 0
         custom_ui_data = [
             {
-                'text_line_1': 'Import single album',
-                'text_line_2': 'Scan one folder as an album',
+                'text_line_1': 'Import album(s)',
+                'text_line_2': 'Pick one folder (named) or several at once',
                 'text_line_3': '',
                 'text_line_4': '',
                 'image_source': KIVY_ICON,
@@ -359,24 +363,57 @@ class LocalFilesHostUI(AbstractPluginHost):
             start_path = os.path.expanduser("~")
             
         Logger.info(f"LocalFiles: Opening Kivy file chooser at {start_path}")
-        
-        # Open the popup directly (no need for threads)
+
+        # Multiselect: one folder -> the confirm flow (set title/artist); many
+        # folders -> import each as a whole album (like scan-root, no per-folder popup).
         popup = DirectoryPickerPopup(
             initial_path=start_path,
-            on_selection=self._on_kivy_dir_selected
+            on_selection=self._on_dirs_selected,
+            multiselect=True,
         )
         popup.open()
 
-    def _on_kivy_dir_selected(self, chosen_path):
-        """Callback from our custom popup."""
-        if not chosen_path:
-            self.root_layout.status_text = "Album creation cancelled."
+    def _on_dirs_selected(self, paths):
+        """Callback from the multiselect picker (receives a list of folders)."""
+        dirs = [p for p in (paths or []) if os.path.isdir(p)]
+        if not dirs:
+            self.root_layout.status_text = "Import cancelled (no folder selected)."
             return
-            
-        self.root_layout.status_text = f"Scanning folder: {os.path.basename(chosen_path)}..."
-        
-        # Run the scan in a background thread to keep UI responsive
-        threading.Thread(target=self._scan_dir_thread, args=(chosen_path,)).start()
+        if len(dirs) == 1:
+            # Single folder: keep the confirm dialog so you can name the album.
+            self.root_layout.status_text = f"Scanning folder: {os.path.basename(dirs[0])}..."
+            threading.Thread(target=self._scan_dir_thread, args=(dirs[0],)).start()
+        else:
+            self.root_layout.status_text = f"Importing {len(dirs)} folders..."
+            threading.Thread(target=self._import_dirs_thread, args=(dirs,)).start()
+
+    def _import_dirs_thread(self, dirs):
+        """(THREAD) Import several album folders as whole albums (no confirm popups)."""
+        if not mutagen:
+            Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', "Error: 'mutagen' is not installed."))
+            return
+        try:
+            albums, total = [], 0
+            for d in dirs:
+                track_info, alb, art = self._scan_one_dir(d)
+                if not track_info:
+                    continue
+                title = alb or os.path.basename(d)
+                artist = art or "Unknown Artist"
+                albums.append(self._build_album(track_info, title, artist, d))
+                total += len(track_info)
+            if not albums:
+                Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', "No supported audio found in the selected folders."))
+                return
+
+            def _commit(dt):
+                for album in albums:
+                    self.add_to_apworld(album, curate=False)
+                self.root_layout.status_text = f"Imported {len(albums)} albums ({total} tracks)."
+            Clock.schedule_once(_commit)
+        except Exception as e:
+            Logger.error(f"LocalFiles: Failed to import folders: {e}")
+            Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', f"Error: {e}"))
     # ---------------------------------------
 
     # Audio extensions recognized by the scanner (shared by single + root scans).
