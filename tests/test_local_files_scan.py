@@ -100,6 +100,31 @@ def test_curate_true_multitrack_queues_selection():
     assert c.queued == [True]              # selection popup queued instead
 
 
+def test_multifolder_popup_returns_checked_paths():
+    import types
+    rec = []
+    stub = types.SimpleNamespace(
+        on_resolve=lambda paths: rec.append(paths),
+        _rows=[(types.SimpleNamespace(state='down'), '/m/A'),
+               (types.SimpleNamespace(state='normal'), '/m/B'),
+               (types.SimpleNamespace(state='down'), '/m/C')],
+    )
+    stub.dismiss = lambda: None
+    stub._import = types.MethodType(lf.MultiFolderPopup._import, stub)
+    stub._cancel = types.MethodType(lf.MultiFolderPopup._cancel, stub)
+    stub._set_all = types.MethodType(lf.MultiFolderPopup._set_all, stub)
+
+    stub._import()
+    assert rec == [['/m/A', '/m/C']]            # only checked folders
+
+    rec.clear()
+    stub._cancel()
+    assert rec == [None]                         # cancel -> None
+
+    stub._set_all('down')                        # bulk toggle
+    assert all(b.state == 'down' for b, _ in stub._rows)
+
+
 def test_add_apworld_item_stamps_all_tracks_for_edit():
     c = _container()
     album = _album(n=4)
