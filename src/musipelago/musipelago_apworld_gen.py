@@ -269,10 +269,29 @@ class LoginPopup(Popup):
 
 def _chunk(tracks, mode, count):
     """Split `tracks` into groups. mode='per_pack' -> groups of ~count tracks;
-    mode='packs' -> `count` near-equal groups (never empty when count <= len)."""
+    mode='packs' -> `count` near-equal groups (never empty when count <= len);
+    mode='minutes' -> greedily fill packs to ~`count` minutes each (each track
+    lands in whichever boundary leaves the pack closest to the target length)."""
     count = max(1, int(count))
     if mode == 'per_pack':
         return [tracks[i:i + count] for i in range(0, len(tracks), count)]
+    if mode == 'minutes':
+        target_ms = count * 60 * 1000
+        groups, cur, cur_ms = [], [], 0
+        for t in tracks:
+            d = getattr(t, 'duration_ms', 0) or 0
+            # Close the current pack before this track only if doing so leaves
+            # it closer to the target than overshooting would. Tracks are
+            # pre-shuffled by build_meta_albums, so order is already random.
+            if cur and cur_ms + d > target_ms and \
+                    abs(cur_ms - target_ms) <= abs(cur_ms + d - target_ms):
+                groups.append(cur)
+                cur, cur_ms = [], 0
+            cur.append(t)
+            cur_ms += d
+        if cur:
+            groups.append(cur)
+        return groups or [tracks]
     # 'packs': split into `count` near-equal groups, capped so none are empty.
     n = min(count, len(tracks)) or 1
     base, rem = divmod(len(tracks), n)
@@ -284,7 +303,7 @@ def _chunk(tracks, mode, count):
     return groups
 
 
-def build_meta_albums(albums, *, mode, count, seed=None):
+def build_meta_albums(albums, *, mode, count, seed=None, subset=None, shuffle=True):
     """Regroup the (already curated) tracks across `albums` into synthetic
     "Mixtape" meta-albums at generate time. This is a pure function of its
     inputs: it returns a fresh list of GenericAlbum objects and never mutates
@@ -297,12 +316,24 @@ def build_meta_albums(albums, *, mode, count, seed=None):
     suffixes duplicate track titles so two same-named tracks in one pack don't
     collide into the same location name. Real track uris are preserved, so the
     client plays the correct underlying files regardless of grouping.
+
+    Randomizer controls (A5):
+    - `shuffle` (default True): randomize track order before packing. Off keeps
+      the source catalog order (deterministic, seed-independent).
+    - `subset`: keep only this many tracks as checks. A positive int < the pool
+      size truncates after shuffling, so with `shuffle` on this is a seeded
+      random sample of K tracks; with `shuffle` off it's the first K in catalog
+      order. None/0/>= pool size keeps every track. Fewer tracks => fewer AP
+      locations, baked into the generated `.apworld`.
     """
     rng = random.Random(seed) if seed is not None else random.Random()
     tracks = [t for album in albums for t in album.tracks]
     if not tracks:
         return albums
-    rng.shuffle(tracks)
+    if shuffle:
+        rng.shuffle(tracks)
+    if subset and 0 < int(subset) < len(tracks):
+        tracks = tracks[:int(subset)]
     groups = _chunk(tracks, mode, count)
     service = albums[0].service if albums else 'local'
     metas = []
@@ -349,14 +380,25 @@ class GeneratePopup(Popup):
         ids = self.ids
         if 'meta_enable' not in ids or not ids.meta_enable.active:
             return {'enabled': False}
-        mode = 'packs' if ids.meta_mode.text == 'N packs' else 'per_pack'
+        mode = {
+            'N packs': 'packs',
+            'Tracks per pack': 'per_pack',
+            'Minutes per pack': 'minutes',
+        }.get(ids.meta_mode.text, 'packs')
         try:
             count = int(ids.meta_count.text)
         except (ValueError, AttributeError):
             count = 0
         seed_text = (ids.meta_seed.text or '').strip()
         seed = int(seed_text) if seed_text else None
-        return {'enabled': True, 'mode': mode, 'count': count, 'seed': seed}
+        subset_text = (ids.meta_subset.text or '').strip() if 'meta_subset' in ids else ''
+        try:
+            subset = int(subset_text) if subset_text else None
+        except ValueError:
+            subset = None
+        shuffle = ids.meta_shuffle.active if 'meta_shuffle' in ids else True
+        return {'enabled': True, 'mode': mode, 'count': count, 'seed': seed,
+                'subset': subset, 'shuffle': shuffle}
 
     def generate_files(self, apworld_name, meta_config=None):
         app = App.get_running_app()
@@ -395,11 +437,15 @@ class GeneratePopup(Popup):
             if meta_config and meta_config.get('enabled'):
                 effective_data = build_meta_albums(
                     self.apworld_data, mode=meta_config['mode'],
-                    count=meta_config['count'], seed=meta_config.get('seed'))
+                    count=meta_config['count'], seed=meta_config.get('seed'),
+                    subset=meta_config.get('subset'),
+                    shuffle=meta_config.get('shuffle', True))
+                total = sum(len(a.tracks) for a in self.apworld_data)
+                used = sum(len(a.tracks) for a in effective_data)
                 Clock.schedule_once(lambda dt: setattr(
                     app.root, 'status_text',
-                    f"Grouped {sum(len(a.tracks) for a in self.apworld_data)} tracks "
-                    f"into {len(effective_data)} meta-albums."))
+                    f"Using {used} of {total} tracks across "
+                    f"{len(effective_data)} meta-albums."))
             else:
                 effective_data = self.apworld_data
 
