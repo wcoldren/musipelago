@@ -1351,6 +1351,7 @@ class MusipelagoClientApp(App):
         self._current_track_container_uri = None  # last album whose tracks are shown (for re-render)
         
         resource_add_path(resource_path(''))
+        self.icon = resource_path(os.path.join('resources', 'musipelago_icon.png'))
         self.plugin_manager = PluginManager(plugin_dir=resource_path('plugins'))
         self.plugin_manager.discover_plugins()
 

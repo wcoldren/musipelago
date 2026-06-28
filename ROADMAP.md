@@ -144,7 +144,11 @@ variants with no code changes.
   `is_owned`; reveals the real cover when the unlock item arrives — already-dimmed rows get the art
   cue too). Removed the leftover debug `print()`s in `apworld_template/Items.py.j2` that spammed
   `[Artist] [Album]` banners during generation. (Album unlock is independent/item-gated per album — no
-  linear chain.) `_build_album` also sets `display_image_url` from `find_cover_in_dir()` so
+  linear chain.)
+- **App icon** (`feat/app-icon`, off `dev`): both apps' window icon set to the user's Musipelago logo
+  (`resources/musipelago_icon.png`). The source PNG had a baked-in transparency checkerboard (fully
+  opaque) — keyed out the two neutral checker greys, cropped to content, squared to 512. Art-less
+  filler stays the neutral music-note. `_build_album` also sets `display_image_url` from `find_cover_in_dir()` so
   **album covers show in the gen app** (stripped from the saved catalog; client re-derives art).
   Folder multiselect is an explicit **checklist** (Ctrl/Cmd-click was unreliable). Re-import existing
   albums to pick up the corrected order.
