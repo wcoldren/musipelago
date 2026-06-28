@@ -15,6 +15,7 @@ Archipelago itself (a checkout/install with Generate.py) is required and located
 --ap-dir, then $ARCHIPELAGO_DIR, then auto-detection. Run this with a Python that has
 Archipelago's dependencies available (e.g. the same env you run Generate.py in).
 """
+
 import argparse
 import glob
 import os
@@ -27,11 +28,17 @@ import zipfile
 
 def resolve_ap_dir(arg=None):
     """Find an Archipelago directory (has Generate.py + custom_worlds/)."""
-    candidates = [arg, os.environ.get("ARCHIPELAGO_DIR"),
-                  os.path.join(os.path.expanduser("~"), "Archipelago")]
+    candidates = [
+        arg,
+        os.environ.get("ARCHIPELAGO_DIR"),
+        os.path.join(os.path.expanduser("~"), "Archipelago"),
+    ]
     for c in candidates:
-        if c and os.path.isfile(os.path.join(c, "Generate.py")) \
-                and os.path.isdir(os.path.join(c, "custom_worlds")):
+        if (
+            c
+            and os.path.isfile(os.path.join(c, "Generate.py"))
+            and os.path.isdir(os.path.join(c, "custom_worlds"))
+        ):
             return os.path.abspath(c)
     return None
 
@@ -72,8 +79,11 @@ def main(argv=None):
     ap.add_argument("--ap-dir", help="Archipelago directory (with Generate.py).")
     ap.add_argument("--yaml", help="Player YAML (default: sibling .yaml, else synthesized).")
     ap.add_argument("--output", help="Seed output dir (default: <apworld-dir>/<name>-seed).")
-    ap.add_argument("--python", default=sys.executable,
-                    help="Python interpreter used to run Generate.py (default: this one).")
+    ap.add_argument(
+        "--python",
+        default=sys.executable,
+        help="Python interpreter used to run Generate.py (default: this one).",
+    )
     ap.add_argument("--slug", help="Override the seed subfolder name.")
     args = ap.parse_args(argv)
 
@@ -83,13 +93,15 @@ def main(argv=None):
     base = os.path.basename(apworld)
     if not (base.startswith("Musipelago_") and base.endswith(".apworld")):
         ap.error(f"expected a Musipelago_<name>.apworld, got '{base}'")
-    game = base[:-len(".apworld")]          # Musipelago_<name>
-    name = game[len("Musipelago_"):]
+    game = base[: -len(".apworld")]  # Musipelago_<name>
+    name = game[len("Musipelago_") :]
 
     ap_dir = resolve_ap_dir(args.ap_dir)
     if not ap_dir:
-        ap.error("Could not find Archipelago. Pass --ap-dir /path/to/Archipelago "
-                 "(the folder containing Generate.py), or set $ARCHIPELAGO_DIR.")
+        ap.error(
+            "Could not find Archipelago. Pass --ap-dir /path/to/Archipelago "
+            "(the folder containing Generate.py), or set $ARCHIPELAGO_DIR."
+        )
 
     # 1. Install the apworld (left in place — the server needs it to host).
     dest = os.path.join(ap_dir, "custom_worlds", base)
@@ -105,7 +117,7 @@ def main(argv=None):
             shutil.copy2(args.yaml, os.path.join(tmp, "player.yaml"))
             print(f"==> Using YAML: {args.yaml}")
         else:
-            sibling = apworld[:-len(".apworld")] + ".yaml"
+            sibling = apworld[: -len(".apworld")] + ".yaml"
             if os.path.isfile(sibling):
                 shutil.copy2(sibling, os.path.join(tmp, "player.yaml"))
                 print(f"==> Using sibling YAML: {sibling}")
@@ -117,9 +129,19 @@ def main(argv=None):
         # 3. Generate.
         print(f"==> Generating seed for {game}")
         subprocess.run(
-            [args.python, "Generate.py", "--player_files_path", tmp,
-             "--outputpath", out, "--spoiler", "2"],
-            cwd=ap_dir, check=True)
+            [
+                args.python,
+                "Generate.py",
+                "--player_files_path",
+                tmp,
+                "--outputpath",
+                out,
+                "--spoiler",
+                "2",
+            ],
+            cwd=ap_dir,
+            check=True,
+        )
 
     # 4. Verify single-player.
     zips = sorted(glob.glob(os.path.join(out, "AP_*.zip")), key=os.path.getmtime)
@@ -134,7 +156,7 @@ def main(argv=None):
         return 1
 
     # 5. Copy the catalog the client needs (sibling of the apworld), if present.
-    catalog = apworld[:-len(".apworld")] + ".json"
+    catalog = apworld[: -len(".apworld")] + ".json"
     if os.path.isfile(catalog):
         shutil.copy2(catalog, out)
         print(f"==> Copied catalog {os.path.basename(catalog)} into the seed dir")
@@ -143,7 +165,7 @@ def main(argv=None):
 
     print()
     print(f"==> Done. Seed: {seed}")
-    print(f"    Host:   cd \"{ap_dir}\" && python MultiServer.py \"{seed}\"")
+    print(f'    Host:   cd "{ap_dir}" && python MultiServer.py "{seed}"')
     print(f"    Client: run musipelago-client, load {game}.json, connect localhost:38281")
     return 0
 

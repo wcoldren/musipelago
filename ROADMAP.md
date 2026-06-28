@@ -199,6 +199,22 @@ Delete dead code (abandoned plyer block `local_files_backend.py:347–381`, comm
 to scoped exceptions + logging; drop the now-unused `plyer` dep from `pyproject.toml`; dedupe the
 duplicated window-config code between client and gen apps.
 
+- **C4-lint — lint/format foundation — ✅ DONE** on `chore/lint-and-format` (off `dev`): adopted
+  **ruff** (lint + format) configured in `pyproject.toml` (`select=[E,F,W,I,UP,B,SIM]`, line-length
+  100), a repo-wide `ruff format` reflow, a **`.pre-commit-config.yaml`** (ruff + whitespace hooks,
+  scoped away from the Jinja `apworld_template/` payload and vendored licenses), a **CI `lint` job**
+  in `ci.yml`, and **pinned the floating runtime deps**. Ruff caught **real bugs**, all fixed here:
+  5× `F821` deferred-lambda `except … as e` that would `NameError` on the error path
+  (`local_files_backend.py`, `subsonic_backend.py` — capture the message before the `Clock` lambda);
+  a silently-shadowed duplicate `get_settings_ui` in `subsonic_backend.py`; 2 dead locals; 2 unused
+  imports; and **10 bare `except:` → `except Exception:`**. 94 tests stay green. The stray-`print()`
+  swap was already done in C4a; the remaining `utils_client.py` prints are the intentional
+  last-resort excepthook fallback.
+- **C4b (remaining):** the broad-`except` swallowers (tracked via ruff `BLE001` —
+  `ruff check --select BLE001 --statistics`) and a deferred style burn-down (the `ignore` list in
+  `[tool.ruff.lint]`: `B007/B027/B905/SIM102/SIM105/SIM118/E731/E741`); the window-config dedupe.
+  Travels with the C1/C2 reliability phase.
+
 ### C5. Tests + CI — 🔴 · repo · upstream? — ✅ **DONE (foundation)** on `test/ci-foundation`
 Pulled to the front (ahead of the roadmap's original "last" slot) because feature velocity had badly
 outrun the safety net. A `tests/` suite now formalizes the verification harness written during the

@@ -22,7 +22,7 @@ shared_modules = [
 ]
 
 shared_datas = [
-    (os.path.join(src_dir, 'musipelagoapwgen.kv'), '.'), 
+    (os.path.join(src_dir, 'musipelagoapwgen.kv'), '.'),
     (os.path.join(src_dir, 'musipelagoclient.kv'), '.'),
     (os.path.join(src_dir, 'resources'), 'resources'), # Icons
     (os.path.join(src_dir, 'plugins'), 'plugins'),     # The plugin python files

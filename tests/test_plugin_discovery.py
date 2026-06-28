@@ -3,9 +3,10 @@
 Uses an isolated temp directory with hand-written plugin files rather than the real
 ``plugins/`` dir, so the test is hermetic and doesn't drag in backend module imports.
 """
+
 from musipelago.plugin_loader import PluginManager
 
-GOOD_PLUGIN = '''
+GOOD_PLUGIN = """
 MUSIPELAGO_PLUGIN = {
     "name": "Demo Backend",
     "generator_backend": object,
@@ -13,19 +14,19 @@ MUSIPELAGO_PLUGIN = {
     "client_backend": object,
     "client_ui": object,
 }
-'''
+"""
 
-NOT_A_DICT = '''
+NOT_A_DICT = """
 MUSIPELAGO_PLUGIN = "oops, not a dict"
-'''
+"""
 
-NO_MANIFEST = '''
+NO_MANIFEST = """
 SOMETHING_ELSE = 123
-'''
+"""
 
-UI_ONLY = '''
+UI_ONLY = """
 MUSIPELAGO_PLUGIN = {"name": "Client Only", "client_backend": object, "client_ui": object}
-'''
+"""
 
 
 def _write(d, name, body):
@@ -36,7 +37,7 @@ def test_discovers_only_valid_manifests(tmp_path):
     _write(tmp_path, "demo.py", GOOD_PLUGIN)
     _write(tmp_path, "broken.py", NOT_A_DICT)
     _write(tmp_path, "plain.py", NO_MANIFEST)
-    _write(tmp_path, "__init__.py", "")          # must be skipped
+    _write(tmp_path, "__init__.py", "")  # must be skipped
 
     pm = PluginManager(plugin_dir=str(tmp_path))
     pm.discover_plugins()
@@ -46,8 +47,8 @@ def test_discovers_only_valid_manifests(tmp_path):
 
 
 def test_get_available_backends_filters_by_app_type(tmp_path):
-    _write(tmp_path, "demo.py", GOOD_PLUGIN)     # has generator_backend + generator_ui
-    _write(tmp_path, "clientonly.py", UI_ONLY)   # no generator_* pair
+    _write(tmp_path, "demo.py", GOOD_PLUGIN)  # has generator_backend + generator_ui
+    _write(tmp_path, "clientonly.py", UI_ONLY)  # no generator_* pair
 
     pm = PluginManager(plugin_dir=str(tmp_path))
     pm.discover_plugins()

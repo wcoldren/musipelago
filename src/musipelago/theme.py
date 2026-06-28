@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Central theme palettes for the Musipelago apps.
 
 Pure data + helpers, no Kivy import, so it loads headless and is unit-testable.
@@ -19,23 +18,23 @@ Each palette is a dict of named RGBA 4-tuples (floats 0..1):
 KEYS = ("bg", "surface", "card", "accent", "text", "text_dim", "border")
 
 DARK = {
-    "bg":       (0.10, 0.10, 0.12, 1),
-    "surface":  (0.15, 0.15, 0.17, 1),
-    "card":     (0.19, 0.19, 0.22, 1),
-    "accent":   (0.30, 0.55, 0.90, 1),
-    "text":     (0.95, 0.95, 0.96, 1),
+    "bg": (0.10, 0.10, 0.12, 1),
+    "surface": (0.15, 0.15, 0.17, 1),
+    "card": (0.19, 0.19, 0.22, 1),
+    "accent": (0.30, 0.55, 0.90, 1),
+    "text": (0.95, 0.95, 0.96, 1),
     "text_dim": (0.70, 0.70, 0.73, 1),
-    "border":   (0.28, 0.28, 0.32, 1),
+    "border": (0.28, 0.28, 0.32, 1),
 }
 
 LIGHT = {
-    "bg":       (0.96, 0.96, 0.97, 1),
-    "surface":  (0.91, 0.91, 0.93, 1),
-    "card":     (1.00, 1.00, 1.00, 1),
-    "accent":   (0.20, 0.50, 0.85, 1),
-    "text":     (0.10, 0.10, 0.12, 1),
+    "bg": (0.96, 0.96, 0.97, 1),
+    "surface": (0.91, 0.91, 0.93, 1),
+    "card": (1.00, 1.00, 1.00, 1),
+    "accent": (0.20, 0.50, 0.85, 1),
+    "text": (0.10, 0.10, 0.12, 1),
     "text_dim": (0.38, 0.38, 0.42, 1),
-    "border":   (0.80, 0.80, 0.84, 1),
+    "border": (0.80, 0.80, 0.84, 1),
 }
 
 PALETTES = {"dark": DARK, "light": LIGHT}

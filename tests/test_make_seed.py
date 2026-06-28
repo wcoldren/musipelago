@@ -3,6 +3,7 @@
 Only the pure helpers are tested here (no actual Generate.py run — that's the
 end-to-end check). The module is loaded from tools/ which isn't on the package path.
 """
+
 import os
 import sys
 import zipfile
@@ -14,7 +15,7 @@ import make_seed as m  # noqa: E402
 def test_default_yaml_game_name_and_capped_slot():
     y = m.default_yaml("Musipelago_A_Very_Long_World_Name")
     assert "game: Musipelago_A_Very_Long_World_Name" in y
-    assert "name: A_Very_Long_Wor" in y          # slot capped to 16 chars
+    assert "name: A_Very_Long_Wor" in y  # slot capped to 16 chars
     assert "StartingAlbum: album_001" in y
     assert "AllowPlayingAnyTrack: true" in y
 

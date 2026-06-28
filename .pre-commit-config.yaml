@@ -1,0 +1,21 @@
+# Run `pre-commit install` once to enable, then hooks fire on every commit.
+# `pre-commit run --all-files` checks the whole tree (matches CI).
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.18
+    hooks:
+      - id: ruff          # lint, with autofix
+        args: [--fix]
+      - id: ruff-format   # format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Keep the Jinja apworld_template payload and vendored license/resource files
+      # pristine — semantic whitespace in templates, third-party text we don't own.
+      - id: trailing-whitespace
+        exclude: '^(src/musipelago/apworld_template/|src/musipelago/resources/|LICENSE$)'
+      - id: end-of-file-fixer
+        exclude: '^(src/musipelago/apworld_template/|src/musipelago/resources/|LICENSE$)'
+      - id: check-yaml
+      - id: check-toml
