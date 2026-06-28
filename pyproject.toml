@@ -16,7 +16,6 @@ dependencies = [
     "jinja2",
     "requests",
     "python-dotenv",
-    "plyer",
     "websockets",
     "mutagen",
     "python-vlc",
