@@ -590,6 +590,10 @@ class CustomListItem(BoxLayout):
                 self.primary_label, self.has_secondary = 'Albums', True
             else:
                 self.primary_label, self.has_secondary = '+ Add', False
+        elif lid:
+            # Plugin-provided action rows (e.g. local_files 'Create New Album').
+            # Give them a working button; on_primary routes to the plugin hook.
+            self.primary_label, self.has_secondary = 'Open', False
         else:
             self.primary_label, self.has_secondary = '', False
 
@@ -602,10 +606,16 @@ class CustomListItem(BoxLayout):
         if self.list_id == 'apworld':
             self.menu_action('Remove')
             return
-        if isinstance(self.generic_item, GenericArtist):
-            self.menu_action('Show all albums')
-        else:
-            self.menu_action('Add to APWorld')
+        if self.list_id == 'search':
+            if isinstance(self.generic_item, GenericArtist):
+                self.menu_action('Show all albums')
+            else:
+                self.menu_action('Add to APWorld')
+            return
+        # Plugin-provided rows: route through the same hook the old "..." used.
+        if app.plugin_host_ui and app.plugin_host_ui.on_item_menu_click(
+                self.list_id, self.generic_item):
+            return
 
     def open_menu(self, button_widget):
         app = App.get_running_app()
@@ -818,7 +828,7 @@ class ListContainer(BoxLayout):
         self._selection_queue = []
         self._selection_active = False
 
-    def add_apworld_item(self, album_data: GenericAlbum):
+    def add_apworld_item(self, album_data: GenericAlbum, curate: bool = True):
         # Check for duplicates against the committed list AND anything still
         # waiting in the track-selection queue.
         if any(item.uri == album_data.uri for item in self.apworld_data) \
@@ -827,8 +837,9 @@ class ListContainer(BoxLayout):
             App.get_running_app().root.status_text = f"'{album_data.title}' is already in the list."
             return
 
-        # Single-track albums have nothing to curate; add directly.
-        if len(album_data.tracks) <= 1:
+        # Bulk/whole-album adds (curate=False) and single-track albums have nothing
+        # to curate; add directly without the per-track selection popup.
+        if not curate or len(album_data.tracks) <= 1:
             self._finalize_add(album_data)
             return
 
@@ -1089,13 +1100,43 @@ class RootLayout(BoxLayout):
         about.bind(size=lambda lbl, *_: setattr(lbl, 'text_size', lbl.size))
         panel.add_widget(about)
 
-        close_btn = Button(text='Close', size_hint_y=None, height='44dp')
-        panel.add_widget(close_btn)
-
         popup = Popup(title="Settings", content=panel, size_hint=(0.7, 0.7),
                       auto_dismiss=True)
+
+        # Recovery: return to service / folder selection (no more force-quit).
+        switch_btn = Button(text='Switch service / folder…', size_hint_y=None, height='44dp')
+        switch_btn.bind(on_release=lambda *_: self._switch_service(popup))
+        panel.add_widget(switch_btn)
+
+        close_btn = Button(text='Close', size_hint_y=None, height='44dp')
         close_btn.bind(on_release=popup.dismiss)
+        panel.add_widget(close_btn)
+
         popup.open()
+
+    def _switch_service(self, settings_popup):
+        """Confirm (if work would be lost) then restart the login flow."""
+        app = App.get_running_app()
+        settings_popup.dismiss()
+
+        has_work = bool(self.ids.list_container.apworld_data)
+        if not has_work:
+            app.restart_login()
+            return
+
+        box = BoxLayout(orientation='vertical', spacing='10dp', padding='10dp')
+        box.add_widget(Label(
+            text="Switching service will clear the albums you've added. Continue?"))
+        row = BoxLayout(size_hint_y=None, height='44dp', spacing='10dp')
+        confirm = Popup(title="Switch service?", content=box, size_hint=(0.6, 0.4))
+        cancel_btn = Button(text='Cancel')
+        cancel_btn.bind(on_release=confirm.dismiss)
+        ok_btn = Button(text='Switch', background_color=(0.6, 0.25, 0.25, 1))
+        ok_btn.bind(on_release=lambda *_: (confirm.dismiss(), app.restart_login()))
+        row.add_widget(cancel_btn)
+        row.add_widget(ok_btn)
+        box.add_widget(row)
+        confirm.open()
 
     def on_generate_click(self):
         apworld_data = self.ids.list_container.apworld_data
@@ -1167,6 +1208,33 @@ class MusipelagoAPWGenApp(App):
                 self.store.put('gen_settings', **gen)
             except Exception as e:
                 Logger.warning(f"Settings: could not save theme: {e}")
+
+    def restart_login(self):
+        """Tear down the current backend/session and return to service selection.
+        The recovery path for a wrong service/folder choice (no more force-quit)."""
+        Logger.info("Settings: switching service — resetting session.")
+        self.backend = None
+        self.plugin_host_ui = None
+
+        # Clear both panes / the source-of-truth list.
+        try:
+            lc = self.root.ids.list_container
+            lc.apworld_data = []
+            lc.list_one_data = []
+            lc.list_two_data = []
+        except Exception as e:
+            Logger.warning(f"Settings: could not clear lists: {e}")
+
+        # Local Files hides the search bar in setup_ui — restore it for the next backend.
+        try:
+            sc = self.root.ids.search_container
+            sc.disabled = False
+            sc.opacity = 1
+        except Exception as e:
+            Logger.warning(f"Settings: could not restore search bar: {e}")
+
+        self.root.status_text = "Select a music service."
+        self.on_start()
 
     def on_start(self):
         self.login_popup = LoginPopup(app_instance=self)

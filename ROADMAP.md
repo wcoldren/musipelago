@@ -103,6 +103,12 @@ variants with no code changes.
   toggle persisted to the gen `JsonStore` + an About/how-to), and clearer `GeneratePopup` labels for
   the A5 mixtape controls. 10 headless tests (`test_gen_ui.py`).
 - **Client — ⏳ not yet.** The same `theme.py` can drive `musipelagoclient.kv`; deferred.
+- **Local-files onboarding fix** (`fix/local-files-onboarding`, off `dev`): the refresh had hidden
+  the per-row `...` button that drove plugin action rows, leaving Local Files' "Create New Album" /
+  "Scan Root Directory" rows dead (no buttons) → fixed by giving plugin rows a primary button routed
+  to `on_item_menu_click`. Also **implemented Scan Root Directory** (each subfolder → a whole album,
+  no per-track popups, via `add_to_apworld(curate=False)`), and added a **Settings → "Switch service
+  / folder…"** recovery path (`App.restart_login`) so a wrong pick no longer needs a force-quit.
 
 ### B3. Album art display — 🟢 · client — ✅ **DONE (display ships upstream; masking added here)**
 **Correction:** cover-art *display* was never missing — it already ships from the initial commit and

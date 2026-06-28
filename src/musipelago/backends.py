@@ -170,13 +170,16 @@ class AbstractPluginHost(ABC):
         """
         pass
         
-    def add_to_apworld(self, generic_album: GenericAlbum):
+    def add_to_apworld(self, generic_album: GenericAlbum, curate: bool = True):
         """
         Helper method for plugins to add data to the right pane.
+
+        curate=False skips the per-track selection popup (used for bulk/whole-album
+        imports like "Scan Root Directory"); the default preserves single-add curation.
         """
         if self.root_layout:
             list_container = self.root_layout.ids.list_container
-            list_container.add_apworld_item(generic_album)
+            list_container.add_apworld_item(generic_album, curate=curate)
     
     def on_item_menu_click(self, item_list_id: str, generic_item: any) -> bool:
         """
