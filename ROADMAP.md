@@ -132,10 +132,13 @@ variants with no code changes.
   named confirm, many → whole-album import). Readability: track-checklist `CheckBox`es → **`[x]/[ ]`
   ToggleButton rows**, the mixtape toggle glyph → ASCII, and right-pane row labels now **ellipsize**
   (`shorten`) instead of scrunching long titles.
-- **Local scan correctness + art** (`fix/local-track-order-and-art`, off `dev`): `_scan_one_dir` now
-  **sorts tracks by tag disc/track number** (`parse_track_no`, filename fallback) — previously raw
-  `os.listdir` order, which mis-ordered tracks (bonus cuts interleaved) and made the victory track
-  (`tracks[-1]`) wrong. `_build_album` also sets `display_image_url` from `find_cover_in_dir()` so
+- **Local scan correctness + art** (`fix/local-track-order-and-art` + `fix/track-order-by-filename`,
+  off `dev`): `_scan_one_dir` now **orders tracks** via `sort_track_infos` — a folder-level heuristic
+  that prefers **numbered filenames** (`01.`,`02.`…), else **unique tag track numbers**, else filename
+  order. (First pass sorted purely by tag track number, but reissues restart/duplicate those per bonus
+  set — e.g. Death "Leprosy (Deluxe Reissue)" had non-unique `n/36` tags while filenames `01.`–`36.`
+  were authoritative — so filename-number wins.) Was raw `os.listdir` order, which mis-ordered tracks
+  (bonus cuts interleaved) and made the victory track (`tracks[-1]`) wrong. `_build_album` also sets `display_image_url` from `find_cover_in_dir()` so
   **album covers show in the gen app** (stripped from the saved catalog; client re-derives art).
   Folder multiselect is an explicit **checklist** (Ctrl/Cmd-click was unreliable). Re-import existing
   albums to pick up the corrected order.

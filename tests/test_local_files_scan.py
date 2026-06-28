@@ -55,6 +55,30 @@ def test_parse_track_no_cases():
     assert lf.parse_track_no("bonus") is None
 
 
+def test_sort_track_infos_prefers_numbered_filenames_over_messy_tags():
+    # Reissue case: filenames are 01..03 but tag tracknumbers are duplicated/restarted.
+    items = [
+        ("03. C.ogg", 1, None, "C"),
+        ("01. A.ogg", 1, None, "A"),
+        ("02. B.ogg", 2, None, "B"),
+    ]
+    assert lf.sort_track_infos(items) == ["A", "B", "C"]
+
+
+def test_sort_track_infos_uses_unique_tags_when_no_filename_numbers():
+    items = [
+        ("Outro.ogg", 3, None, "z"),
+        ("Intro.ogg", 1, None, "x"),
+        ("Middle.ogg", 2, None, "y"),
+    ]
+    assert lf.sort_track_infos(items) == ["x", "y", "z"]
+
+
+def test_sort_track_infos_falls_back_to_filename():
+    items = [("b.ogg", None, None, "b"), ("a.ogg", None, None, "a")]
+    assert lf.sort_track_infos(items) == ["a", "b"]
+
+
 def test_scan_one_dir_orders_untagged_by_filename(tmp_path):
     # Untagged files (no track number) must fall back to filename order, not the
     # arbitrary os.listdir() order.
