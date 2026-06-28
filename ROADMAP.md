@@ -28,16 +28,22 @@ supported. The blocker is that the **client has no per-item dispatch** — `_syn
 - **design choice:** trap songs = random from the library at trigger time (simplest) **or** a
   curated "trap pool" chosen at generate time (see A4). Recommend starting random, add curation later.
 
-### A2. Guess-the-song mode — "name the album / artist / song" — 🟡 · client (client-side toggle) · upstream?
-All metadata is already client-side (`GenericTrack.{title,artist,album_title}`), so this is
-client UI + a **client-side toggle** (a setting, not a per-seed option — flip it anytime, works on
-existing seeds).
+### A2. Guess-the-song mode — "name the album / artist / song" — 🟡 · client/world · upstream?
+You identify the playing track (fuzzy-match on `GenericTrack.{title,artist,album_title}` via
+`difflib`). **We'll implement BOTH ways guessing ties into Archipelago checks:**
 
-- On track finish (`on_playback_finished` → `send_location_check`), gate the check behind a prompt:
-  type artist/title/album, fuzzy-match (`difflib`) against known metadata; correct → the check
-  fires; skip → reveal but maybe no credit (configurable).
-- Hooks: the finish→check path in the backend client hosts; the row/now-playing render.
-- **design choice:** strict gate (must guess to get the check) vs. optional self-quiz overlay.
+- **A2a — gate the existing check** (🟢🟡, client-only, no regen, works on current seeds): each
+  track already has one location check (earned on finish). In guess mode you earn it by correctly
+  naming the track; reveal / give-up = no credit. Hooks the finish→`send_location_check` path
+  (`local_files_backend.py:759–773`). Pure client toggle, builds on A3's reveal plumbing.
+- **A2b — bonus "guess" checks** (🟡🔴, world + regen): generate a SECOND location per track
+  ("Guess: <track>") so a correct guess is a genuinely *extra* check (more items/progression).
+  Touches `Locations.py.j2` / `Items.py.j2` / `Rules.py.j2` and requires regenerating seeds.
+  **AP constraint:** locations are fixed at generation, so bonus checks cannot be added purely
+  client-side — they must exist in the seed. Do A2a first, then A2b.
+
+Reveal is available today via a **per-row Reveal button** + the `...` menu (see A3). A reveal
+**hotkey** is in the backlog (D5).
 
 ### A3. Hidden-metadata / "unknown song" mode — learn your library — 🟢🟡 · client — ✅ **DONE**
 Client-side toggle in a new Settings panel (reached via the existing settings icon, persisted in
@@ -103,6 +109,8 @@ Locks in the curation features + the macOS picker/ws fixes against regressions.
 - **D2.** Subsonic gaps: `get_playlist_with_tracks` stub + missing pagination. — 🟡 client
 - **D3.** Settings UI + config module: window size, volume default, AP timeout, audio backend. — 🟡 client
 - **D4.** Friendlier error messages (wrap low-level exceptions with context). — 🟢 all
+- **D5.** Reveal hotkey — a meta-key reveals the currently-playing track. Needs new keyboard
+  handling (`Window.bind(on_key_down=…)`); none exists in the client today. — 🟢🟡 client
 
 ---
 

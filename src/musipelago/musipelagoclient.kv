@@ -288,10 +288,18 @@
             valign: 'middle'
     
     Button:
+        text: 'Reveal'
+        size_hint_x: None
+        width: '70dp' if root.can_reveal else 0
+        opacity: 1 if root.can_reveal else 0
+        disabled: not root.can_reveal
+        on_release: app.root.reveal_track(root.raw_uri)
+
+    Button:
         text: '...'
         size_hint_x: None
         width: '48dp'
-        
+
         # This now points to the passthrough method
         on_release: root.handle_menu_click(self)
 

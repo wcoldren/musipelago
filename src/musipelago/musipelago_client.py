@@ -436,6 +436,7 @@ class CustomListItem(ButtonBehavior, BoxLayout):
     raw_artist = StringProperty(); raw_album_type = StringProperty()
     raw_total_tracks = StringProperty(); raw_image_url = StringProperty()
     raw_uri = StringProperty(); menu = ObjectProperty(None)
+    can_reveal = BooleanProperty(False)  # show a per-row Reveal button (hidden mode, unfinished)
 
     def handle_menu_click(self, button_instance):
         """
@@ -739,7 +740,8 @@ class RootLayout(BoxLayout):
                     'raw_artist': artists,
                     'raw_line3': text_line_3,
                     'is_finished': is_finished,
-                    'has_hint': has_hint_bool
+                    'has_hint': has_hint_bool,
+                    'can_reveal': hidden
                 }
                 track_list_for_rv.append(item_data)
                 
@@ -840,6 +842,7 @@ class RootLayout(BoxLayout):
         for track_data in track_rv.data:
             if track_data['raw_uri'] == track_uri:
                 self._unmask_track_row(track_data)
+                track_data['can_reveal'] = False  # collapse the per-row Reveal button
                 track_rv.refresh_from_data()
                 break
 
@@ -852,6 +855,7 @@ class RootLayout(BoxLayout):
                     track_data['is_finished'] = True; track_updated = True
                 # A finished track always shows its real metadata, even in hidden mode.
                 self._unmask_track_row(track_data)
+                track_data['can_reveal'] = False  # finished -> no Reveal button
                 track_rv.refresh_from_data()
                 Logger.info(f"UI updated for track: {track_uri}"); break
         if track_updated:
@@ -1458,6 +1462,7 @@ class MusipelagoClientApp(App):
                     'has_hint': album_has_hint,
                     'all_tracks_finished': all_tracks_complete,
                     'is_finished': False,
+                    'can_reveal': False,  # albums are never revealable
                     'list_id': uri,
                     'raw_item_type': 'album', # UI still uses 'album'
                     'raw_uri': uri,
