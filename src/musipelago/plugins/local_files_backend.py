@@ -1,29 +1,30 @@
-# -*- coding: utf-8 -*-
-import os, re, threading, hashlib, base64
+import base64
+import hashlib
+import os
+import re
+import threading
 
-from kivy.logger import Logger
+from kivy.app import App
 from kivy.clock import Clock
+from kivy.logger import Logger
 from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.label import Label
-from kivy.uix.textinput import TextInput
 from kivy.uix.button import Button
-from kivy.uix.popup import Popup
-from kivy.uix.togglebutton import ToggleButton
-from kivy.uix.scrollview import ScrollView
-from kivy.uix.gridlayout import GridLayout
-from kivy.uix.dropdown import DropDown
-from kivy.uix.progressbar import ProgressBar
 from kivy.uix.filechooser import FileChooserListView
-from kivy.app import App
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.label import Label
+from kivy.uix.popup import Popup
+from kivy.uix.scrollview import ScrollView
+from kivy.uix.textinput import TextInput
+from kivy.uix.togglebutton import ToggleButton
 
 # --- Mutagen import for ID3 tags ---
 try:
     import mutagen
     from mutagen import File as MutagenFile
-    from mutagen.mp3 import MP3, EasyMP3
-    from mutagen.id3 import ID3, APIC
     from mutagen.flac import FLAC, Picture
+    from mutagen.id3 import ID3
+    from mutagen.mp3 import MP3
     from mutagen.mp4 import MP4
     from mutagen.oggvorbis import OggVorbis
 except ImportError:
@@ -33,12 +34,21 @@ except ImportError:
 
 # --- Imports from the main application's interface ---
 from musipelago.backends import (
-    AbstractMusicBackend, AbstractPluginHost, AbstractClientHost,
-    GenericAlbum, GenericArtist, GenericPlaylist, GenericTrack
+    AbstractClientHost,
+    AbstractMusicBackend,
+    AbstractPluginHost,
+    GenericAlbum,
+    GenericArtist,
+    GenericPlaylist,
+    GenericTrack,
 )
-from musipelago.utils import (KIVY_ICON, filter_to_ascii, find_cover_in_dir,
-                              collect_source_covers, build_cover_collage)
 from musipelago.client_ui_components import GenericPlaybackInfo, ItemMenu
+from musipelago.utils import (
+    KIVY_ICON,
+    build_cover_collage,
+    collect_source_covers,
+    find_cover_in_dir,
+)
 
 
 def parse_track_no(raw):
@@ -46,7 +56,7 @@ def parse_track_no(raw):
     '5/12', '', None. Pure — unit-testable."""
     if raw is None:
         return None
-    s = str(raw).split('/', 1)[0].strip()
+    s = str(raw).split("/", 1)[0].strip()
     try:
         return int(s)
     except (ValueError, TypeError):
@@ -75,8 +85,9 @@ def sort_track_infos(items):
     leads = [_leading_num(it[0]) for it in items]
     track_keys = [(it[2] or 0, it[1]) for it in items]
     use_lead = all(x is not None for x in leads)
-    use_track = (not use_lead) and all(it[1] is not None for it in items) \
-        and len(set(track_keys)) == n
+    use_track = (
+        (not use_lead) and all(it[1] is not None for it in items) and len(set(track_keys)) == n
+    )
 
     def key(i):
         fn = items[i][0].lower()
@@ -91,11 +102,13 @@ def sort_track_infos(items):
 
 # --- Plugin-specific helper UI ---
 
+
 class DirectoryPickerPopup(Popup):
     """
     A pure Kivy popup that lets the user select a directory.
     Replaces the need for tkinter or inconsistent plyer behavior.
     """
+
     def __init__(self, initial_path, on_selection, multiselect=False, **kwargs):
         super().__init__(**kwargs)
         self.title = "Select Album Folder(s)" if multiselect else "Select Album Directory"
@@ -103,19 +116,23 @@ class DirectoryPickerPopup(Popup):
         self.on_selection = on_selection
         self.multiselect = multiselect
 
-        layout = BoxLayout(orientation='vertical', spacing=dp(10), padding=dp(10))
+        layout = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
 
         if multiselect:
-            layout.add_widget(Label(
-                text="Tip: Ctrl/Cmd-click (or Shift-click) to pick several album folders.",
-                size_hint_y=None, height=dp(24)))
+            layout.add_widget(
+                Label(
+                    text="Tip: Ctrl/Cmd-click (or Shift-click) to pick several album folders.",
+                    size_hint_y=None,
+                    height=dp(24),
+                )
+            )
 
         # 1. File Chooser (List View)
         self.file_chooser = FileChooserListView(
             path=initial_path,
-            dirselect=True, # CRITICAL: Allow directory selection
+            dirselect=True,  # CRITICAL: Allow directory selection
             multiselect=multiselect,
-            filters=[''] # Show directories only (mostly)
+            filters=[""],  # Show directories only (mostly)
         )
         layout.add_widget(self.file_chooser)
 
@@ -125,7 +142,8 @@ class DirectoryPickerPopup(Popup):
         cancel_btn = Button(text="Cancel", on_release=self.dismiss)
         select_btn = Button(
             text="Import Selected" if multiselect else "Select This Folder",
-            on_release=self.select_current)
+            on_release=self.select_current,
+        )
 
         btn_layout.add_widget(cancel_btn)
         btn_layout.add_widget(select_btn)
@@ -138,9 +156,10 @@ class DirectoryPickerPopup(Popup):
         selection = list(self.file_chooser.selection) or [self.file_chooser.path]
         self.dismiss()
         if self.multiselect:
-            self.on_selection(selection)          # caller gets a list
+            self.on_selection(selection)  # caller gets a list
         else:
-            self.on_selection(selection[0])       # caller gets a single path
+            self.on_selection(selection[0])  # caller gets a single path
+
 
 class MultiFolderPopup(Popup):
     """Pick one or more album subfolders to import via an explicit checklist.
@@ -149,21 +168,22 @@ class MultiFolderPopup(Popup):
     platform-specific). Lists the immediate subfolders of a parent dir as
     [x]/[ ] toggle rows; OK returns the checked paths as a list.
     """
+
     def __init__(self, start_dir, on_resolve, **kwargs):
         super().__init__(**kwargs)
         self.title = "Import album folders"
         self.size_hint = (0.9, 0.9)
         self.on_resolve = on_resolve
-        self.current = start_dir if (start_dir and os.path.isdir(start_dir)) \
-            else os.path.expanduser("~")
+        self.current = (
+            start_dir if (start_dir and os.path.isdir(start_dir)) else os.path.expanduser("~")
+        )
         self._rows = []
 
-        root = BoxLayout(orientation='vertical', spacing=dp(8), padding=dp(10))
+        root = BoxLayout(orientation="vertical", spacing=dp(8), padding=dp(10))
 
         top = BoxLayout(size_hint_y=None, height=dp(36), spacing=dp(8))
-        self.path_lbl = Label(halign='left', valign='middle', shorten=True,
-                              shorten_from='left')
-        self.path_lbl.bind(size=lambda l, *_: setattr(l, 'text_size', l.size))
+        self.path_lbl = Label(halign="left", valign="middle", shorten=True, shorten_from="left")
+        self.path_lbl.bind(size=lambda l, *_: setattr(l, "text_size", l.size))
         change_btn = Button(text="Change folder…", size_hint_x=None, width=dp(140))
         change_btn.bind(on_release=self._change_folder)
         top.add_widget(self.path_lbl)
@@ -172,16 +192,16 @@ class MultiFolderPopup(Popup):
 
         sel = BoxLayout(size_hint_y=None, height=dp(32), spacing=dp(8))
         all_btn = Button(text="Select all")
-        all_btn.bind(on_release=lambda *_: self._set_all('down'))
+        all_btn.bind(on_release=lambda *_: self._set_all("down"))
         none_btn = Button(text="Select none")
-        none_btn.bind(on_release=lambda *_: self._set_all('normal'))
+        none_btn.bind(on_release=lambda *_: self._set_all("normal"))
         sel.add_widget(all_btn)
         sel.add_widget(none_btn)
         root.add_widget(sel)
 
         scroll = ScrollView(do_scroll_x=False)
-        self.box = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(2))
-        self.box.bind(minimum_height=self.box.setter('height'))
+        self.box = BoxLayout(orientation="vertical", size_hint_y=None, spacing=dp(2))
+        self.box.bind(minimum_height=self.box.setter("height"))
         scroll.add_widget(self.box)
         root.add_widget(scroll)
 
@@ -202,22 +222,36 @@ class MultiFolderPopup(Popup):
         self.box.clear_widgets()
         self._rows = []
         try:
-            subs = sorted(n for n in os.listdir(self.current)
-                          if os.path.isdir(os.path.join(self.current, n)))
+            subs = sorted(
+                n for n in os.listdir(self.current) if os.path.isdir(os.path.join(self.current, n))
+            )
         except OSError:
             subs = []
         if not subs:
-            self.box.add_widget(Label(text="(no subfolders here — use Change folder…)",
-                                      size_hint_y=None, height=dp(36)))
+            self.box.add_widget(
+                Label(
+                    text="(no subfolders here — use Change folder…)",
+                    size_hint_y=None,
+                    height=dp(36),
+                )
+            )
             return
         for name in subs:
             path = os.path.join(self.current, name)
-            btn = ToggleButton(text=f"[x]  {name}", state='down',
-                               size_hint_y=None, height=dp(36),
-                               halign='left', valign='middle')
-            btn.bind(size=lambda b, *_: setattr(b, 'text_size', (b.width - dp(16), None)))
-            btn.bind(state=lambda b, st, n=name: setattr(
-                b, 'text', ("[x]  " if st == 'down' else "[  ]  ") + n))
+            btn = ToggleButton(
+                text=f"[x]  {name}",
+                state="down",
+                size_hint_y=None,
+                height=dp(36),
+                halign="left",
+                valign="middle",
+            )
+            btn.bind(size=lambda b, *_: setattr(b, "text_size", (b.width - dp(16), None)))
+            btn.bind(
+                state=lambda b, st, n=name: setattr(
+                    b, "text", ("[x]  " if st == "down" else "[  ]  ") + n
+                )
+            )
             self.box.add_widget(btn)
             self._rows.append((btn, path))
 
@@ -230,10 +264,11 @@ class MultiFolderPopup(Popup):
             if path and os.path.isdir(path):
                 self.current = path
                 self._populate()
+
         DirectoryPickerPopup(initial_path=self.current, on_selection=_picked).open()
 
     def _import(self, *_):
-        selected = [path for btn, path in self._rows if btn.state == 'down']
+        selected = [path for btn, path in self._rows if btn.state == "down"]
         self.dismiss()
         self.on_resolve(selected)
 
@@ -246,25 +281,26 @@ class CreateAlbumPopup(Popup):
     """
     A plugin-specific popup for creating a new local album.
     """
+
     def __init__(self, title, artist, on_create_callback, **kwargs):
         super().__init__(**kwargs)
         self.title = "Import album"
         self.size_hint = (0.8, None)
         self.auto_dismiss = False
-        
+
         self.on_create_callback = on_create_callback
-        
-        layout = BoxLayout(orientation='vertical', spacing=dp(10), padding=dp(10))
+
+        layout = BoxLayout(orientation="vertical", spacing=dp(10), padding=dp(10))
         form_grid = GridLayout(cols=2, spacing=dp(10), size_hint_y=None, height=dp(88))
-        
+
         form_grid.add_widget(Label(text="Album Title:", size_hint_x=0.3))
         self.album_input = TextInput(text=title, multiline=False, write_tab=False)
         form_grid.add_widget(self.album_input)
-        
+
         form_grid.add_widget(Label(text="Artist:", size_hint_x=0.3))
         self.artist_input = TextInput(text=artist, multiline=False, write_tab=False)
         form_grid.add_widget(self.artist_input)
-        
+
         layout.add_widget(form_grid)
 
         button_layout = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(10))
@@ -272,66 +308,66 @@ class CreateAlbumPopup(Popup):
         create_btn = Button(text="Create", on_release=self.on_create_press)
         button_layout.add_widget(cancel_btn)
         button_layout.add_widget(create_btn)
-        
+
         layout.add_widget(button_layout)
-        
+
         self.content = layout
         self.height = dp(220)
 
     def on_create_press(self, *args):
         album_title = self.album_input.text.strip()
         artist_name = self.artist_input.text.strip()
-        
+
         if not album_title:
             self.album_input.text = ""
             return
-        
+
         if not artist_name:
             artist_name = "Unknown Artist"
-            
+
         self.on_create_callback(self, album_title, artist_name)
+
 
 class LocalFilesLoginUI(BoxLayout):
     """
     This is the Kivy widget that the main app will show in a popup.
     """
+
     def __init__(self, initial_path=None, **kwargs):
         super().__init__(**kwargs)
-        self.orientation = 'vertical'
-        self.spacing = '10dp'
-        self.padding = '10dp'
-        
+        self.orientation = "vertical"
+        self.spacing = "10dp"
+        self.padding = "10dp"
+
         # Set a fixed height for this widget so it doesn't collapse
         self.size_hint_y = None
         # Label (30) + TextInput (40) + Button (44) + Spacing (2*10) + Padding (2*10) = 154
-        self.height = dp(154) 
+        self.height = dp(154)
         self.desired_popup_height = dp(280)
 
         # Label
-        self.add_widget(Label(
-            text="Select your root music directory:",
-            halign='left',
-            size_hint_y=None,
-            height=dp(30)
-        ))
-        
+        self.add_widget(
+            Label(
+                text="Select your root music directory:",
+                halign="left",
+                size_hint_y=None,
+                height=dp(30),
+            )
+        )
+
         # Text Input to display the path. Pre-filled from the catalog's root_directory
         # so the user can just click Login (the picker still lets them change it).
         self.path_input = TextInput(
-            text=(initial_path if initial_path and os.path.isdir(initial_path) else ''),
-            hint_text='No directory selected...',
+            text=(initial_path if initial_path and os.path.isdir(initial_path) else ""),
+            hint_text="No directory selected...",
             readonly=True,
             size_hint_y=None,
-            height=dp(40)
+            height=dp(40),
         )
         self.add_widget(self.path_input)
 
         # Button to open the dialog
-        self.choose_btn = Button(
-            text="Choose Directory...",
-            size_hint_y=None,
-            height=dp(44)
-        )
+        self.choose_btn = Button(text="Choose Directory...", size_hint_y=None, height=dp(44))
         self.choose_btn.bind(on_release=self.open_dialog)
         self.add_widget(self.choose_btn)
 
@@ -343,10 +379,7 @@ class LocalFilesLoginUI(BoxLayout):
         start_path = self.path_input.text
         if not start_path or not os.path.isdir(start_path):
             start_path = os.path.expanduser("~")
-        DirectoryPickerPopup(
-            initial_path=start_path,
-            on_selection=self._on_dir_selected
-        ).open()
+        DirectoryPickerPopup(initial_path=start_path, on_selection=self._on_dir_selected).open()
 
     def _on_dir_selected(self, path):
         """Callback from DirectoryPickerPopup (passes a single path string)."""
@@ -384,21 +417,21 @@ class LocalFilesBackendLogic(AbstractMusicBackend):
 
         # 1. Extract the path from the UI widget
         directory_path = login_widget.path_input.text
-        
+
         # 2. Check if a path was actually selected
         if not directory_path or not os.path.isdir(directory_path):
             msg = "No valid directory selected."
             Logger.warning(f"LocalFilesBackend: {msg}")
             Clock.schedule_once(lambda dt: self.on_login_failure(msg))
             return
-            
+
         # 3. --- LOGIN SUCCESS ---
         self.root_directory = directory_path
         self.is_authenticated = True
-        
+
         folder_name = os.path.basename(directory_path)
-        user_data = {'display_name': f"Folder: ...{folder_name}"}
-        
+        user_data = {"display_name": f"Folder: ...{folder_name}"}
+
         Logger.info(f"LocalFilesBackend: 'Logged in' to {directory_path}")
         # Call success on the main thread
         Clock.schedule_once(lambda dt: self.on_login_success(user_data))
@@ -406,34 +439,39 @@ class LocalFilesBackendLogic(AbstractMusicBackend):
     # --- Abstract Method Stubs ---
 
     def search(self, query: str, search_type: str, limit: int = 20):
-        Logger.info(f"LocalFilesBackend: Searching... (not implemented)")
+        Logger.info("LocalFilesBackend: Searching... (not implemented)")
         return []
 
-    def get_album_with_tracks(self, album: GenericAlbum): return album
-    def get_playlist_with_tracks(self, playlist: GenericPlaylist): return None
-    def get_all_artist_albums(self, artist: GenericArtist): return []
-    def get_artist_albums_for_display(self, artist: GenericArtist): return []
+    def get_album_with_tracks(self, album: GenericAlbum):
+        return album
+
+    def get_playlist_with_tracks(self, playlist: GenericPlaylist):
+        return None
+
+    def get_all_artist_albums(self, artist: GenericArtist):
+        return []
+
+    def get_artist_albums_for_display(self, artist: GenericArtist):
+        return []
 
     def get_client_data(self) -> dict:
         """
         Pass the selected root music directory to the client.
         """
-        return {
-            "root_directory": self.root_directory
-        }
+        return {"root_directory": self.root_directory}
 
     def initialize_client(self, client_data: dict, app: App):
         """
         Called by the client app *after* successful login.
         This just sets the root directory.
         """
-        self.root_directory = client_data.get('root_directory')
+        self.root_directory = client_data.get("root_directory")
         if not self.root_directory:
             Logger.error("LocalFilesClient: No 'root_directory' found in JSON data.")
             # This will fail gracefully
             app.on_login_failure("Invalid JSON: Missing root_directory")
             return
-            
+
         Logger.info(f"LocalFilesClient: Initialized with root: {self.root_directory}")
         self.is_authenticated = True
         # No return value, no callback
@@ -445,8 +483,8 @@ class LocalFilesBackendLogic(AbstractMusicBackend):
         """
         return True
 
+
 class LocalFilesHostUI(AbstractPluginHost):
-    
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._temp_track_info = []
@@ -461,23 +499,23 @@ class LocalFilesHostUI(AbstractPluginHost):
         self.root_layout.ids.search_controls.opacity = 0
         custom_ui_data = [
             {
-                'text_line_1': 'Import album(s)',
-                'text_line_2': 'Tick the album folders to import',
-                'text_line_3': '',
-                'text_line_4': '',
-                'image_source': KIVY_ICON,
-                'list_id': 'local_files_action',
-                'generic_item': 'create_album_action'
+                "text_line_1": "Import album(s)",
+                "text_line_2": "Tick the album folders to import",
+                "text_line_3": "",
+                "text_line_4": "",
+                "image_source": KIVY_ICON,
+                "list_id": "local_files_action",
+                "generic_item": "create_album_action",
             },
             {
-                'text_line_1': 'Scan Root Directory',
-                'text_line_2': 'Import every album folder in your library',
-                'text_line_3': '',
-                'text_line_4': '',
-                'image_source': KIVY_ICON,
-                'list_id': 'local_files_action',
-                'generic_item': 'scan_dir_action'
-            }
+                "text_line_1": "Scan Root Directory",
+                "text_line_2": "Import every album folder in your library",
+                "text_line_3": "",
+                "text_line_4": "",
+                "image_source": KIVY_ICON,
+                "list_id": "local_files_action",
+                "generic_item": "scan_dir_action",
+            },
             # ... (other actions like 'scan_dir_action' can be added here) ...
         ]
         self.root_layout.ids.list_container.list_one_data = custom_ui_data
@@ -486,19 +524,19 @@ class LocalFilesHostUI(AbstractPluginHost):
         pass
 
     def on_item_menu_click(self, item_list_id: str, generic_item: any) -> bool:
-        if item_list_id == 'local_files_action':
+        if item_list_id == "local_files_action":
             action_id = str(generic_item)
-            
-            if action_id == 'create_album_action':
-                self.start_create_album_flow()
-                return True # We handled the click
 
-            elif action_id == 'scan_dir_action':
+            if action_id == "create_album_action":
+                self.start_create_album_flow()
+                return True  # We handled the click
+
+            elif action_id == "scan_dir_action":
                 self.root_layout.status_text = "Scanning root directory for albums…"
                 Logger.info("UI: 'Scan Root Directory' clicked.")
                 threading.Thread(target=self._scan_root_thread).start()
-                return True # We handled the click
-            
+                return True  # We handled the click
+
         return False
 
     # --- NEW ALBUM CREATION FLOW ---
@@ -512,7 +550,7 @@ class LocalFilesHostUI(AbstractPluginHost):
         start_path = self.backend.root_directory
         if not start_path or not os.path.isdir(start_path):
             start_path = os.path.expanduser("~")
-            
+
         Logger.info(f"LocalFiles: Opening folder checklist at {start_path}")
 
         # Explicit checklist of subfolders (reliable cross-platform multiselect;
@@ -537,7 +575,11 @@ class LocalFilesHostUI(AbstractPluginHost):
     def _import_dirs_thread(self, dirs):
         """(THREAD) Import several album folders as whole albums (no confirm popups)."""
         if not mutagen:
-            Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', "Error: 'mutagen' is not installed."))
+            Clock.schedule_once(
+                lambda dt: setattr(
+                    self.root_layout, "status_text", "Error: 'mutagen' is not installed."
+                )
+            )
             return
         try:
             albums, total = [], 0
@@ -550,21 +592,32 @@ class LocalFilesHostUI(AbstractPluginHost):
                 albums.append(self._build_album(track_info, title, artist, d))
                 total += len(track_info)
             if not albums:
-                Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', "No supported audio found in the selected folders."))
+                Clock.schedule_once(
+                    lambda dt: setattr(
+                        self.root_layout,
+                        "status_text",
+                        "No supported audio found in the selected folders.",
+                    )
+                )
                 return
 
             def _commit(dt):
                 for album in albums:
                     self.add_to_apworld(album, curate=False)
                 self.root_layout.status_text = f"Imported {len(albums)} albums ({total} tracks)."
+
             Clock.schedule_once(_commit)
         except Exception as e:
-            Logger.error(f"LocalFiles: Failed to import folders: {e}")
-            Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', f"Error: {e}"))
+            err = str(e)
+            Logger.error(f"LocalFiles: Failed to import folders: {err}")
+            Clock.schedule_once(
+                lambda dt: setattr(self.root_layout, "status_text", f"Error: {err}")
+            )
+
     # ---------------------------------------
 
     # Audio extensions recognized by the scanner (shared by single + root scans).
-    VALID_AUDIO_EXTS = ('.mp3', '.flac', '.m4a', '.ogg', '.wma')
+    VALID_AUDIO_EXTS = (".mp3", ".flac", ".m4a", ".ogg", ".wma")
 
     def _scan_one_dir(self, chosen_dir: str):
         """Scan a single directory for audio files and read their tags.
@@ -574,7 +627,7 @@ class LocalFilesHostUI(AbstractPluginHost):
         empty list when the folder has no supported audio. Pure of UI — safe to call
         from a worker thread for one folder or many.
         """
-        entries = []   # (sort_key, info_tuple)
+        entries = []  # (sort_key, info_tuple)
         album_tags = []
         artist_tags = []
 
@@ -594,17 +647,17 @@ class LocalFilesHostUI(AbstractPluginHost):
                 # normalizes keys to 'title'/'artist'/'album' across formats.
                 audio = MutagenFile(filepath, easy=True)
                 if audio:
-                    if 'title' in audio:
-                        title_tag = audio['title'][0]
-                    if 'artist' in audio:
-                        artist_tag = audio['artist'][0]
+                    if "title" in audio:
+                        title_tag = audio["title"][0]
+                    if "artist" in audio:
+                        artist_tag = audio["artist"][0]
                         artist_tags.append(artist_tag)
-                    if 'album' in audio:
-                        album_tags.append(audio['album'][0])
-                    if 'tracknumber' in audio:
-                        track_no = parse_track_no(audio['tracknumber'][0])
-                    if 'discnumber' in audio:
-                        disc_no = parse_track_no(audio['discnumber'][0])
+                    if "album" in audio:
+                        album_tags.append(audio["album"][0])
+                    if "tracknumber" in audio:
+                        track_no = parse_track_no(audio["tracknumber"][0])
+                    if "discnumber" in audio:
+                        disc_no = parse_track_no(audio["discnumber"][0])
                     # audio.info.length is seconds across all mutagen types.
                     if audio.info and audio.info.length:
                         duration_ms = int(audio.info.length * 1000)
@@ -612,8 +665,9 @@ class LocalFilesHostUI(AbstractPluginHost):
                 # Don't crash on one bad file; fall back to the filename later.
                 Logger.warning(f"LocalFiles: Could not read metadata for {filename}: {e}")
 
-            entries.append((filename, track_no, disc_no,
-                            (filepath, title_tag, artist_tag, duration_ms)))
+            entries.append(
+                (filename, track_no, disc_no, (filepath, title_tag, artist_tag, duration_ms))
+            )
 
         track_info_list = sort_track_infos(entries)
 
@@ -625,29 +679,39 @@ class LocalFilesHostUI(AbstractPluginHost):
         """(THREAD) Scan one folder, then open the confirm popup (Create New Album)."""
         if not mutagen:
             Logger.error("Cannot scan: 'mutagen' is not installed.")
-            Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', "Error: 'mutagen' is not installed."))
+            Clock.schedule_once(
+                lambda dt: setattr(
+                    self.root_layout, "status_text", "Error: 'mutagen' is not installed."
+                )
+            )
             return
 
         try:
             track_info_list, consensus_album, consensus_artist = self._scan_one_dir(chosen_dir)
 
             if not track_info_list:
-                Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', f"No supported audio files found in '{os.path.basename(chosen_dir)}'."))
+                Clock.schedule_once(
+                    lambda dt: setattr(
+                        self.root_layout,
+                        "status_text",
+                        f"No supported audio files found in '{os.path.basename(chosen_dir)}'.",
+                    )
+                )
                 return
 
             self._temp_track_info = track_info_list
             self._temp_chosen_dir = chosen_dir
 
             Clock.schedule_once(
-                lambda dt: self._open_create_album_popup(
-                    consensus_album,
-                    consensus_artist
-                )
+                lambda dt: self._open_create_album_popup(consensus_album, consensus_artist)
             )
 
         except Exception as e:
-            Logger.error(f"LocalFiles: Failed to scan directory: {e}")
-            Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', f"Error: {e}"))
+            err = str(e)
+            Logger.error(f"LocalFiles: Failed to scan directory: {err}")
+            Clock.schedule_once(
+                lambda dt: setattr(self.root_layout, "status_text", f"Error: {err}")
+            )
 
     def _scan_root_thread(self):
         """(THREAD) Scan every immediate subfolder of the root dir, importing each as
@@ -655,12 +719,18 @@ class LocalFilesHostUI(AbstractPluginHost):
         with all my albums in it" expectation."""
         if not mutagen:
             Logger.error("Cannot scan: 'mutagen' is not installed.")
-            Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', "Error: 'mutagen' is not installed."))
+            Clock.schedule_once(
+                lambda dt: setattr(
+                    self.root_layout, "status_text", "Error: 'mutagen' is not installed."
+                )
+            )
             return
 
         root_dir = self.backend.root_directory
         if not root_dir or not os.path.isdir(root_dir):
-            Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', "No valid root directory set."))
+            Clock.schedule_once(
+                lambda dt: setattr(self.root_layout, "status_text", "No valid root directory set.")
+            )
             return
 
         try:
@@ -673,36 +743,49 @@ class LocalFilesHostUI(AbstractPluginHost):
                 track_info, alb, art = self._scan_one_dir(sub)
                 if not track_info:
                     continue
-                title = alb or name                       # fall back to the folder name
+                title = alb or name  # fall back to the folder name
                 artist = art or "Unknown Artist"
                 albums.append(self._build_album(track_info, title, artist, sub))
                 total_tracks += len(track_info)
 
             if not albums:
-                Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', f"No album folders found in '{os.path.basename(root_dir)}'."))
+                Clock.schedule_once(
+                    lambda dt: setattr(
+                        self.root_layout,
+                        "status_text",
+                        f"No album folders found in '{os.path.basename(root_dir)}'.",
+                    )
+                )
                 return
 
             def _commit(dt):
                 for album in albums:
-                    self.add_to_apworld(album, curate=False)   # whole albums, no popup
+                    self.add_to_apworld(album, curate=False)  # whole albums, no popup
                 self.root_layout.status_text = (
-                    f"Imported {len(albums)} albums ({total_tracks} tracks).")
+                    f"Imported {len(albums)} albums ({total_tracks} tracks)."
+                )
+
             Clock.schedule_once(_commit)
 
         except Exception as e:
-            Logger.error(f"LocalFiles: Failed to scan root: {e}")
-            Clock.schedule_once(lambda dt: setattr(self.root_layout, 'status_text', f"Error: {e}"))
+            err = str(e)
+            Logger.error(f"LocalFiles: Failed to scan root: {err}")
+            Clock.schedule_once(
+                lambda dt: setattr(self.root_layout, "status_text", f"Error: {err}")
+            )
 
     def _open_create_album_popup(self, consensus_album: str, consensus_artist: str):
         """
         (MAIN THREAD) Opens the new CreateAlbumPopup.
         """
-        self.root_layout.status_text = f"Found {len(self._temp_track_info)} tracks. Please confirm album details."
-        
+        self.root_layout.status_text = (
+            f"Found {len(self._temp_track_info)} tracks. Please confirm album details."
+        )
+
         popup = CreateAlbumPopup(
             title=consensus_album,
             artist=consensus_artist,
-            on_create_callback=self.on_album_popup_create
+            on_create_callback=self.on_album_popup_create,
         )
         popup.open()
 
@@ -718,14 +801,16 @@ class LocalFilesHostUI(AbstractPluginHost):
             track_title = title_tag or os.path.splitext(os.path.basename(filepath))[0]
             track_artist = artist_tag or artist
             track_uri = os.path.relpath(filepath, root_dir).replace("\\", "/")
-            generic_tracks.append(GenericTrack(
-                uri=track_uri,
-                title=track_title,
-                artist=track_artist,
-                album_title=title,
-                duration_ms=duration_ms,
-                service='local'
-            ))
+            generic_tracks.append(
+                GenericTrack(
+                    uri=track_uri,
+                    title=track_title,
+                    artist=track_artist,
+                    album_title=title,
+                    duration_ms=duration_ms,
+                    service="local",
+                )
+            )
 
         # Local cover (cover.jpg/folder.jpg/etc) for the gen-app row. display_image_url
         # is preferred by the rows and stripped from the saved catalog, so no absolute
@@ -737,20 +822,22 @@ class LocalFilesHostUI(AbstractPluginHost):
             image_url="",
             total_tracks=len(generic_tracks),
             album_type="Album",
-            service='local',
+            service="local",
             tracks=generic_tracks,
             display_image_url=find_cover_in_dir(source_dir),
         )
 
-    def on_album_popup_create(self, popup_instance: Popup, new_album_title: str, new_artist_name: str):
+    def on_album_popup_create(
+        self, popup_instance: Popup, new_album_title: str, new_artist_name: str
+    ):
         """
         (MAIN THREAD) Callback from the CreateAlbumPopup.
         This is where we finally create the GenericAlbum.
         """
         try:
             new_album = self._build_album(
-                self._temp_track_info, new_album_title, new_artist_name,
-                self._temp_chosen_dir)
+                self._temp_track_info, new_album_title, new_artist_name, self._temp_chosen_dir
+            )
 
             # Add to the APWorld (right pane) — single create still offers curation.
             self.add_to_apworld(new_album)
@@ -767,15 +854,15 @@ class LocalFilesHostUI(AbstractPluginHost):
             self._temp_chosen_dir = ""
             popup_instance.dismiss()
 
+
 class LocalFilesClientHost(AbstractClientHost):
-    
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.current_playing_track_uri = None
         self.current_playing_track_title = None
         self.playback_queue = []
         self.queue_index = -1
-        
+
         # UI References
         self.playback_ui = None
         self.track_label = None
@@ -784,13 +871,13 @@ class LocalFilesClientHost(AbstractClientHost):
 
     def setup_ui(self):
         Logger.info("LocalFilesClientHost: Setting up UI.")
-        
+
         # 1. Bind is_playing
-        self.bind(is_playing=self.root_layout.setter('is_playing'))
-        
+        self.bind(is_playing=self.root_layout.setter("is_playing"))
+
         # 2. Instantiate and inject GenericPlaybackInfo
         self.playback_info_widget = self.root_layout.playback_info_widget = GenericPlaybackInfo()
-        
+
         # Initialize with empty state
         self.playback_info_widget.track_title = "Not Playing"
         self.playback_info_widget.artist_album = "Select a track"
@@ -802,16 +889,18 @@ class LocalFilesClientHost(AbstractClientHost):
         center_slot = self.root_layout.ids.playback_center
         center_slot.clear_widgets()
         center_slot.add_widget(self.playback_info_widget)
-        
+
         self.root_layout.set_status("Local files loaded. Ready to play.")
 
     def fetch_game_data_threaded(self, game_data: dict):
         Logger.info("LocalFilesClientHost: Parsing and scanning local data...")
         display_data = game_data.get("display_data")
         if not display_data:
-            Clock.schedule_once(lambda dt: self.root_layout.set_status("Error: JSON missing 'display_data' key."))
+            Clock.schedule_once(
+                lambda dt: self.root_layout.set_status("Error: JSON missing 'display_data' key.")
+            )
             return
-            
+
         threading.Thread(target=self._parse_thread_target, args=(display_data,)).start()
 
     def _parse_thread_target(self, display_data: list):
@@ -819,7 +908,7 @@ class LocalFilesClientHost(AbstractClientHost):
         (THREAD) Parses JSON and scans filesystem for artwork.
         """
         root_dir = self.backend.root_directory
-        cache_dir = os.path.join(self.app.user_data_dir, 'image_cache')
+        cache_dir = os.path.join(self.app.user_data_dir, "image_cache")
         if not os.path.exists(cache_dir):
             os.makedirs(cache_dir)
 
@@ -827,13 +916,13 @@ class LocalFilesClientHost(AbstractClientHost):
             for album_dict in display_data:
                 # 1. Reconstruct Tracks
                 track_objects = []
-                for track_dict in album_dict.get('tracks', []):
+                for track_dict in album_dict.get("tracks", []):
                     track_objects.append(GenericTrack(**track_dict))
-                
+
                 # 2. Resolve Album URI to Absolute Path
-                album_uri = album_dict.get('uri')
+                album_uri = album_dict.get("uri")
                 abs_album_path = os.path.normpath(os.path.join(root_dir, album_uri))
-                
+
                 # 3. --- NEW: SCAN FOR ARTWORK ---
                 # We look for art now, while parsing the data.
                 # This updates the 'image_url' which the UI will eventually use.
@@ -850,14 +939,15 @@ class LocalFilesClientHost(AbstractClientHost):
                             found_art_path = source_covers[0]
                         else:
                             first_track_dir = os.path.dirname(
-                                os.path.normpath(os.path.join(root_dir, track_objects[0].uri)))
+                                os.path.normpath(os.path.join(root_dir, track_objects[0].uri))
+                            )
                             found_art_path = self._find_local_art(first_track_dir, cache_dir)
-                album_dict['display_image_url'] = found_art_path or KIVY_ICON
+                album_dict["display_image_url"] = found_art_path or KIVY_ICON
                 # --------------------------------
-                
-                album_dict['tracks'] = track_objects
+
+                album_dict["tracks"] = track_objects
                 album_obj = GenericAlbum(**album_dict)
-                
+
                 # Update the object with the found art path (or default if empty)
                 album_obj.image_url = found_art_path or KIVY_ICON
 
@@ -866,10 +956,11 @@ class LocalFilesClientHost(AbstractClientHost):
                 self.app.ordered_album_uris.append(album_obj.uri)
 
             Clock.schedule_once(self.app._populate_initial_lists)
-            
+
         except Exception as e:
+            err = str(e)
             Logger.error(f"LocalFilesClientHost: Threaded Parse Failed: {e}", exc_info=True)
-            Clock.schedule_once(lambda dt: self.root_layout.set_status(f"Error: {e}"))
+            Clock.schedule_once(lambda dt: self.root_layout.set_status(f"Error: {err}"))
 
     def _find_local_art(self, album_path: str, cache_dir: str) -> str:
         """
@@ -887,31 +978,34 @@ class LocalFilesClientHost(AbstractClientHost):
             return external
 
         # B. Check for Embedded Art
-        if not mutagen: return ""
+        if not mutagen:
+            return ""
 
         # Find any supported audio file
-        valid_exts = ('.mp3', '.flac', '.m4a', '.ogg', '.wma')
+        valid_exts = (".mp3", ".flac", ".m4a", ".ogg", ".wma")
         first_audio = None
         for filename in os.listdir(album_path):
             if filename.lower().endswith(valid_exts):
                 first_audio = os.path.join(album_path, filename)
                 break
-        
+
         if first_audio:
             # Use a hash of the file path for the cache key
-            file_hash = hashlib.md5(first_audio.encode('utf-8')).hexdigest()
+            file_hash = hashlib.md5(first_audio.encode("utf-8")).hexdigest()
             # We guess .jpg initially, but the extractor might change it
             cached_art_path_base = os.path.join(cache_dir, file_hash)
-            
+
             # Check if cached version exists (try common extensions)
-            if os.path.exists(cached_art_path_base + ".jpg"): return cached_art_path_base + ".jpg"
-            if os.path.exists(cached_art_path_base + ".png"): return cached_art_path_base + ".png"
+            if os.path.exists(cached_art_path_base + ".jpg"):
+                return cached_art_path_base + ".jpg"
+            if os.path.exists(cached_art_path_base + ".png"):
+                return cached_art_path_base + ".png"
 
             # Attempt extraction
             return self._extract_art_to_cache(first_audio, cached_art_path_base)
 
         return ""
-    
+
     def _extract_art_to_cache(self, filepath, cache_path_base):
         """
         Inspects the file format and extracts binary image data.
@@ -919,65 +1013,69 @@ class LocalFilesClientHost(AbstractClientHost):
         """
         try:
             f = MutagenFile(filepath)
-            if not f: return ""
-            
+            if not f:
+                return ""
+
             art_data = None
-            ext = "jpg" # Default assumption
+            ext = "jpg"  # Default assumption
 
             # 1. MP3 (ID3)
-            if isinstance(f, MP3) or hasattr(f, 'tags') and isinstance(f.tags, ID3):
+            if isinstance(f, MP3) or hasattr(f, "tags") and isinstance(f.tags, ID3):
                 if f.tags:
                     # Look for APIC frames
                     for key in f.tags.keys():
                         if key.startswith("APIC"):
                             pic = f.tags[key]
                             art_data = pic.data
-                            if 'png' in pic.mime: ext = "png"
+                            if "png" in pic.mime:
+                                ext = "png"
                             break
 
             # 2. FLAC
             elif isinstance(f, FLAC):
                 if f.pictures:
                     for p in f.pictures:
-                        if p.type == 3: # 3 = Front Cover
+                        if p.type == 3:  # 3 = Front Cover
                             art_data = p.data
-                            if p.mime == "image/png": ext = "png"
+                            if p.mime == "image/png":
+                                ext = "png"
                             break
 
             # 3. M4A (MP4)
             elif isinstance(f, MP4):
                 # 'covr' is a list of data atoms
-                if 'covr' in f.tags:
-                    art_data = f.tags['covr'][0]
+                if "covr" in f.tags:
+                    art_data = f.tags["covr"][0]
                     # M4A doesn't give mime type easily, need to sniff bytes
                     # PNG starts with 89 50 4E 47
-                    if art_data.startswith(b'\x89PNG'):
+                    if art_data.startswith(b"\x89PNG"):
                         ext = "png"
 
             # 4. OGG (Vorbis)
             elif isinstance(f, OggVorbis):
                 # Vorbis stores art as a base64 encoded string in 'metadata_block_picture'
-                if 'metadata_block_picture' in f.tags:
+                if "metadata_block_picture" in f.tags:
                     try:
-                        b64_data = f.tags['metadata_block_picture'][0]
+                        b64_data = f.tags["metadata_block_picture"][0]
                         binary_data = base64.b64decode(b64_data)
                         # This binary block is actually a FLAC Picture structure
                         pic = Picture(binary_data)
                         art_data = pic.data
-                        if pic.mime == "image/png": ext = "png"
+                        if pic.mime == "image/png":
+                            ext = "png"
                     except Exception as e:
                         Logger.warning(f"LocalFiles: OGG art decode failed: {e}")
 
             # --- SAVE ---
             if art_data:
                 final_path = f"{cache_path_base}.{ext}"
-                with open(final_path, 'wb') as img_f:
+                with open(final_path, "wb") as img_f:
                     img_f.write(art_data)
                 return final_path
 
         except Exception as e:
             Logger.warning(f"LocalFiles: Failed to extract art from {filepath}: {e}")
-            
+
         return ""
 
     def start_polling(self):
@@ -991,40 +1089,49 @@ class LocalFilesClientHost(AbstractClientHost):
             self.poll_event = None
 
     def _update_progress_ui(self, dt):
-        if not self.is_playing: return
+        if not self.is_playing:
+            return
         player = self.app.audio_player
-        if not player: return
-        
+        if not player:
+            return
+
         try:
             pos = player.get_position()
             dur = player.get_duration()
-            
+
             # Update the GenericPlaybackInfo widget
             if self.playback_info_widget and dur > 0:
                 self.playback_info_widget.progress_value = (pos / dur) * 100
-                self.playback_info_widget.current_time = self.root_layout.format_duration(pos * 1000)
+                self.playback_info_widget.current_time = self.root_layout.format_duration(
+                    pos * 1000
+                )
                 self.playback_info_widget.total_time = self.root_layout.format_duration(dur * 1000)
 
-        except Exception: pass
+        except Exception:
+            pass
 
     def on_stop_click(self):
-        self.stop_polling(); self.is_playing = False; self.current_playing_track_uri = None
-        self.playback_queue = []; self.queue_index = -1
+        self.stop_polling()
+        self.is_playing = False
+        self.current_playing_track_uri = None
+        self.playback_queue = []
+        self.queue_index = -1
         if self.playback_info_widget:
-            self.playback_info_widget.track_title = "Stopped"; self.playback_info_widget.progress_value = 0
+            self.playback_info_widget.track_title = "Stopped"
+            self.playback_info_widget.progress_value = 0
 
     def on_playback_finished(self):
         Logger.info("LocalFiles: Track finished naturally.")
-        
+
         # 1. Stop polling while we switch
         self.stop_polling()
-        
+
         # 2. Handle completion logic
         if self.current_playing_track_uri:
             track_uri = self.current_playing_track_uri
             track_data = self.app.track_progress.get(track_uri)
-            if track_data and not track_data['is_finished']:
-                if getattr(self.app, 'guess_mode', False):
+            if track_data and not track_data["is_finished"]:
+                if getattr(self.app, "guess_mode", False):
                     # Guess mode: finishing playback does NOT award the check — the player must
                     # name the track (per-row Guess button) to earn it.
                     self.app.show_toast("Track ended — guess it to score.")
@@ -1052,31 +1159,36 @@ class LocalFilesClientHost(AbstractClientHost):
 
     def _play_track_internal(self, track_obj: GenericTrack):
         self.stop_polling()
-        uri = track_obj.uri; title = track_obj.title
-        
+        uri = track_obj.uri
+        title = track_obj.title
+
         # Check ownership
         prog = self.app.track_progress.get(uri)
-        parent = prog.get('parent_uri') if prog else None
+        parent = prog.get("parent_uri") if prog else None
         if (not parent or parent not in self.app.owned_albums) and not self.app.cheat_mode:
             self.app.show_toast(f"Skipping unowned: {title}")
-            Clock.schedule_once(lambda dt: self.on_playback_finished(), 0.1); return
-            
+            Clock.schedule_once(lambda dt: self.on_playback_finished(), 0.1)
+            return
+
         abs_path = os.path.normpath(os.path.join(self.backend.root_directory, uri))
         if not os.path.exists(abs_path):
             self.app.show_toast(f"File not found: {title}")
-            Clock.schedule_once(lambda dt: self.on_playback_finished(), 0.1); return
+            Clock.schedule_once(lambda dt: self.on_playback_finished(), 0.1)
+            return
 
         # Update UI. In hidden mode, the currently-playing (not-yet-finished) track is the one
         # you're trying to recognize, so mask its title/artist in the now-playing bar too.
         if self.playback_info_widget:
-            is_finished = bool(prog and prog.get('is_finished'))
-            hidden = getattr(self.app, 'hidden_metadata', False) and not is_finished
+            is_finished = bool(prog and prog.get("is_finished"))
+            hidden = getattr(self.app, "hidden_metadata", False) and not is_finished
             if hidden:
                 self.playback_info_widget.track_title = "Unknown Track"
                 self.playback_info_widget.artist_album = "Unknown Artist"
             else:
                 self.playback_info_widget.track_title = title
-                self.playback_info_widget.artist_album = f"{track_obj.artist} - {track_obj.album_title}"
+                self.playback_info_widget.artist_album = (
+                    f"{track_obj.artist} - {track_obj.album_title}"
+                )
             # For local files, we need to find the album art again or pass it down.
             # For now, let's try to grab it from the parent album in cache. In hidden mode the
             # cover would give the answer away, so mask it too until the track is finished.
@@ -1100,7 +1212,14 @@ class LocalFilesClientHost(AbstractClientHost):
 
     def _play_track(self, track_uri: str, track_title: str):
         self.stop_polling()
-        track_obj = GenericTrack(uri=track_uri, title=track_title, artist="", album_title="", duration_ms=0, service="local")
+        track_obj = GenericTrack(
+            uri=track_uri,
+            title=track_title,
+            artist="",
+            album_title="",
+            duration_ms=0,
+            service="local",
+        )
         self.playback_queue = [track_obj]
         self.queue_index = 0
         self._play_track_internal(track_obj)
@@ -1119,14 +1238,14 @@ class LocalFilesClientHost(AbstractClientHost):
         if not album or not album.tracks:
             self.app.show_toast("Error: Album has no tracks.")
             return
-            
+
         # 3. Populate Queue
-        self.playback_queue = list(album.tracks) # Create a copy
+        self.playback_queue = list(album.tracks)  # Create a copy
         self.queue_index = 0
-        
+
         Logger.info(f"LocalFiles: Queued {len(self.playback_queue)} tracks for album {album.title}")
         self.app.show_toast(f"Playing Album: {album.title}")
-        
+
         # 4. Play First Track
         if self.playback_queue:
             self._play_track_internal(self.playback_queue[0])
@@ -1153,9 +1272,9 @@ class LocalFilesClientHost(AbstractClientHost):
     def on_mute_toggle(self, is_muted: bool):
         # We don't need this, the RootLayout handles volume based on the slider state
         pass
-        
+
     def on_device_select(self, device_name: str):
-        pass # Not supported
+        pass  # Not supported
 
     def get_settings_ui(self) -> BoxLayout | None:
         """Local files require no extra settings."""
@@ -1163,14 +1282,14 @@ class LocalFilesClientHost(AbstractClientHost):
 
     def on_list_item_click(self, list_item):
         """Handles clicks on albums or tracks."""
-        if list_item.raw_item_type == 'album':
+        if list_item.raw_item_type == "album":
             if not list_item.is_owned and not self.app.cheat_mode:
                 self.app.show_toast("You do not own this album yet.")
                 return
             self.root_layout.set_status(f"Loading tracks for: {list_item.raw_title}")
             self.root_layout.populate_track_list(list_item.raw_uri)
-        
-        elif list_item.raw_item_type == 'track':
+
+        elif list_item.raw_item_type == "track":
             self._play_track(list_item.raw_uri, list_item.raw_title)
 
     def on_menu_action(self, option_text, list_item):
@@ -1185,7 +1304,7 @@ class LocalFilesClientHost(AbstractClientHost):
             cheat_color = "ff8888"
             button_added = False
 
-            if list_item.raw_item_type == 'album' or list_item.raw_item_type == 'playlist':
+            if list_item.raw_item_type == "album" or list_item.raw_item_type == "playlist":
                 btn = Button(text="Play", size_hint_y=None, height=dp(44))
                 btn.bind(on_release=lambda x: menu.on_option_select("Play Album"))
                 menu.add_widget(btn)
@@ -1194,22 +1313,24 @@ class LocalFilesClientHost(AbstractClientHost):
                 btn_hint.bind(on_release=lambda x: menu.on_option_select("Hint"))
                 menu.add_widget(btn_hint)
                 button_added = True
-            
-            elif list_item.raw_item_type == 'track':
+
+            elif list_item.raw_item_type == "track":
                 btn = Button(text="Play Track", size_hint_y=None, height=dp(44))
                 btn.bind(on_release=lambda x: menu.on_option_select("Play Track"))
                 menu.add_widget(btn)
                 button_added = True
 
                 # Hidden mode: let the player peek at an unrevealed track.
-                if getattr(app, 'hidden_metadata', False) and not list_item.is_finished:
+                if getattr(app, "hidden_metadata", False) and not list_item.is_finished:
                     btn_reveal = Button(text="Reveal", size_hint_y=None, height=dp(44))
                     btn_reveal.bind(on_release=lambda x: menu.on_option_select("Reveal"))
                     menu.add_widget(btn_reveal)
 
                 if app.cheat_mode:
                     cheat_text = f"[color={cheat_color}]Send Location[/color]"
-                    btn_send_loc = Button(text=cheat_text, markup=True, size_hint_y=None, height=dp(44))
+                    btn_send_loc = Button(
+                        text=cheat_text, markup=True, size_hint_y=None, height=dp(44)
+                    )
                     btn_send_loc.bind(on_release=lambda x: menu.on_option_select("Send Location"))
                     menu.add_widget(btn_send_loc)
                     button_added = True
@@ -1218,14 +1339,14 @@ class LocalFilesClientHost(AbstractClientHost):
                 btn = Button(text="No actions", size_hint_y=None, height=dp(44))
                 btn.bind(on_release=lambda x: menu.on_option_select("No actions"))
                 menu.add_widget(btn)
-            
-            menu.open(list_item.ids.menu_button) # Open relative to the button
+
+            menu.open(list_item.ids.menu_button)  # Open relative to the button
             return
 
         # --- This is the action-handling logic ---
         elif option_text == "Play Album":
             self._play_album(list_item.raw_uri)
-        
+
         elif option_text == "Play Track":
             self._play_track(list_item.raw_uri, list_item.raw_title)
 
@@ -1237,15 +1358,15 @@ class LocalFilesClientHost(AbstractClientHost):
             if self.app.ap_client and apworld_name:
                 self.app.ap_client.send_chat_message(f"!hint {apworld_name}")
                 self.app.show_toast(f"Hinting for: {apworld_name}")
-        
+
         elif option_text == "Send Location":
             track_uri = list_item.raw_uri
-            location_id = self.app.track_progress.get(track_uri, {}).get('location_id')
+            location_id = self.app.track_progress.get(track_uri, {}).get("location_id")
             if location_id and self.app.ap_client:
                 self.app.ap_client.send_location_check(location_id)
                 self.app.show_toast(f"CHEAT: Sent check for {list_item.raw_title}")
                 if track_uri in self.app.track_progress:
-                    self.app.track_progress[track_uri]['is_finished'] = True
+                    self.app.track_progress[track_uri]["is_finished"] = True
                 self.root_layout.update_track_ui(track_uri)
 
 
@@ -1257,5 +1378,5 @@ MUSIPELAGO_PLUGIN = {
     "generator_backend": LocalFilesBackendLogic,
     "generator_ui": LocalFilesHostUI,
     "client_backend": LocalFilesBackendLogic,
-    "client_ui": LocalFilesClientHost
+    "client_ui": LocalFilesClientHost,
 }
