@@ -40,6 +40,19 @@ from musipelago.utils import (KIVY_ICON, filter_to_ascii, find_cover_in_dir,
                               collect_source_covers, build_cover_collage)
 from musipelago.client_ui_components import GenericPlaybackInfo, ItemMenu
 
+
+def parse_track_no(raw):
+    """Parse a tag track/disc number to an int, or None. Handles '5', '05',
+    '5/12', '', None. Pure — unit-testable."""
+    if raw is None:
+        return None
+    s = str(raw).split('/', 1)[0].strip()
+    try:
+        return int(s)
+    except (ValueError, TypeError):
+        return None
+
+
 # --- Plugin-specific helper UI ---
 
 class DirectoryPickerPopup(Popup):
@@ -525,7 +538,7 @@ class LocalFilesHostUI(AbstractPluginHost):
         empty list when the folder has no supported audio. Pure of UI — safe to call
         from a worker thread for one folder or many.
         """
-        track_info_list = []
+        entries = []   # (sort_key, info_tuple)
         album_tags = []
         artist_tags = []
 
@@ -537,6 +550,8 @@ class LocalFilesHostUI(AbstractPluginHost):
             title_tag = None
             artist_tag = None
             duration_ms = 0
+            track_no = None
+            disc_no = None
 
             try:
                 # mutagen.File detects format from header/extension; easy=True
@@ -550,6 +565,10 @@ class LocalFilesHostUI(AbstractPluginHost):
                         artist_tags.append(artist_tag)
                     if 'album' in audio:
                         album_tags.append(audio['album'][0])
+                    if 'tracknumber' in audio:
+                        track_no = parse_track_no(audio['tracknumber'][0])
+                    if 'discnumber' in audio:
+                        disc_no = parse_track_no(audio['discnumber'][0])
                     # audio.info.length is seconds across all mutagen types.
                     if audio.info and audio.info.length:
                         duration_ms = int(audio.info.length * 1000)
@@ -557,7 +576,14 @@ class LocalFilesHostUI(AbstractPluginHost):
                 # Don't crash on one bad file; fall back to the filename later.
                 Logger.warning(f"LocalFiles: Could not read metadata for {filename}: {e}")
 
-            track_info_list.append((filepath, title_tag, artist_tag, duration_ms))
+            # Order by (disc, track number, filename). Untagged tracks sort after
+            # numbered ones; an all-untagged folder degrades to filename order.
+            sort_key = (disc_no or 0, track_no if track_no is not None else 10**6,
+                        filename.lower())
+            entries.append((sort_key, (filepath, title_tag, artist_tag, duration_ms)))
+
+        entries.sort(key=lambda e: e[0])
+        track_info_list = [info for _, info in entries]
 
         consensus_album = max(set(album_tags), key=album_tags.count) if album_tags else ""
         consensus_artist = max(set(artist_tags), key=artist_tags.count) if artist_tags else ""
@@ -669,6 +695,9 @@ class LocalFilesHostUI(AbstractPluginHost):
                 service='local'
             ))
 
+        # Local cover (cover.jpg/folder.jpg/etc) for the gen-app row. display_image_url
+        # is preferred by the rows and stripped from the saved catalog, so no absolute
+        # path is persisted; the client re-derives art on its own at play time.
         return GenericAlbum(
             uri=album_uri,
             title=title,
@@ -677,7 +706,8 @@ class LocalFilesHostUI(AbstractPluginHost):
             total_tracks=len(generic_tracks),
             album_type="Album",
             service='local',
-            tracks=generic_tracks
+            tracks=generic_tracks,
+            display_image_url=find_cover_in_dir(source_dir),
         )
 
     def on_album_popup_create(self, popup_instance: Popup, new_album_title: str, new_artist_name: str):

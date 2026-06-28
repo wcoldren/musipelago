@@ -132,6 +132,13 @@ variants with no code changes.
   named confirm, many → whole-album import). Readability: track-checklist `CheckBox`es → **`[x]/[ ]`
   ToggleButton rows**, the mixtape toggle glyph → ASCII, and right-pane row labels now **ellipsize**
   (`shorten`) instead of scrunching long titles.
+- **Local scan correctness + art** (`fix/local-track-order-and-art`, off `dev`): `_scan_one_dir` now
+  **sorts tracks by tag disc/track number** (`parse_track_no`, filename fallback) — previously raw
+  `os.listdir` order, which mis-ordered tracks (bonus cuts interleaved) and made the victory track
+  (`tracks[-1]`) wrong. `_build_album` also sets `display_image_url` from `find_cover_in_dir()` so
+  **album covers show in the gen app** (stripped from the saved catalog; client re-derives art).
+  Folder multiselect is an explicit **checklist** (Ctrl/Cmd-click was unreliable). Re-import existing
+  albums to pick up the corrected order.
 
 ### B3. Album art display — 🟢 · client — ✅ **DONE (display ships upstream; masking added here)**
 **Correction:** cover-art *display* was never missing — it already ships from the initial commit and

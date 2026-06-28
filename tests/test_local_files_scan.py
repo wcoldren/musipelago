@@ -46,6 +46,35 @@ def _host_with_root(root):
     return stub
 
 
+def test_parse_track_no_cases():
+    assert lf.parse_track_no("5") == 5
+    assert lf.parse_track_no("05") == 5
+    assert lf.parse_track_no("7/12") == 7      # "n/total" form
+    assert lf.parse_track_no("") is None
+    assert lf.parse_track_no(None) is None
+    assert lf.parse_track_no("bonus") is None
+
+
+def test_scan_one_dir_orders_untagged_by_filename(tmp_path):
+    # Untagged files (no track number) must fall back to filename order, not the
+    # arbitrary os.listdir() order.
+    for fn in ("03 third.mp3", "01 first.mp3", "02 second.mp3", "skip.txt"):
+        (tmp_path / fn).write_bytes(b"")
+    track_info, _, _ = _scanner()._scan_one_dir(str(tmp_path))
+    names = [os.path.basename(p) for p, *_ in track_info]
+    assert names == ["01 first.mp3", "02 second.mp3", "03 third.mp3"]
+
+
+def test_build_album_sets_cover_from_folder(tmp_path):
+    src = tmp_path / "Album"
+    src.mkdir()
+    (src / "cover.jpg").write_bytes(b"x")
+    host = _host_with_root(str(tmp_path))
+    album = host._build_album(
+        [(str(src / "01.mp3"), "T", "A", 1000)], "Album", "A", str(src))
+    assert album.display_image_url.endswith("cover.jpg")
+
+
 def test_build_album_uses_root_relative_uris():
     root = os.path.join("music", "lib")
     source = os.path.join(root, "Cool Album")
