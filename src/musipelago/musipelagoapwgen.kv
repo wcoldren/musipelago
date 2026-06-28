@@ -200,6 +200,8 @@
             font_size: '18sp'
             color: app.col_text
             text_size: self.width, None
+            shorten: True
+            shorten_from: 'right'
             halign: 'left'
             valign: 'middle'
 
@@ -208,6 +210,8 @@
             font_size: '14sp'
             color: app.col_text
             text_size: self.width, None
+            shorten: True
+            shorten_from: 'right'
             halign: 'left'
             valign: 'middle'
 
@@ -216,6 +220,8 @@
             font_size: '12sp'
             color: app.col_text_dim
             text_size: self.width, None
+            shorten: True
+            shorten_from: 'right'
             halign: 'left'
             valign: 'middle'
 
@@ -224,6 +230,8 @@
             font_size: '12sp'
             color: app.col_text_dim
             text_size: self.width, None
+            shorten: True
+            shorten_from: 'right'
             halign: 'left'
             valign: 'middle'
 
@@ -305,7 +313,7 @@
             state: 'normal'
             size_hint_y: None
             height: '40dp'
-            text: ('☑  ' if self.state == 'down' else '☐  ') + 'Reshuffle my tracks into custom mixtapes'
+            text: ('[x]  ' if self.state == 'down' else '[  ]  ') + 'Reshuffle my tracks into custom mixtapes'
             halign: 'center'
 
         Label:

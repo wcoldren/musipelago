@@ -57,6 +57,7 @@ from kivy.uix.button import Button
 from kivy.uix.popup import Popup
 from kivy.uix.checkbox import CheckBox
 from kivy.uix.togglebutton import ToggleButton
+from kivy.core.clipboard import Clipboard
 from kivy.clock import Clock
 from kivy.uix.dropdown import DropDown
 from kivy.uix.image import Image
@@ -596,7 +597,16 @@ class GeneratePopup(Popup):
             Logger.error(f"Generate: Failed during file processing: {e}")
 
     def _show_results(self, folder, apworld_name, json_name, yaml_name):
-        """Post-generation dialog: where the files are + what to do next."""
+        """Post-generation dialog: where the files are + the seed command (copyable)."""
+        app = App.get_running_app()
+        # Locate the shipped, cross-platform seed helper (repo root / tools).
+        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        tool = os.path.join(repo_root, 'tools', 'make_seed.py')
+        apworld_full = os.path.join(folder, apworld_name)
+        ap_dir = app._load_gen_setting('ap_dir')
+        cmd = f'"{sys.executable}" "{tool}" "{apworld_full}"'
+        cmd += f' --ap-dir "{ap_dir}"' if ap_dir else '   # add --ap-dir, or set it in Settings'
+
         panel = BoxLayout(orientation='vertical', spacing='10dp', padding='10dp')
         body = Label(
             markup=True, halign='left', valign='top',
@@ -605,21 +615,25 @@ class GeneratePopup(Popup):
                   f"• [b]{apworld_name}[/b] — the world\n"
                   f"• [b]{json_name}[/b] — the catalog you load in the client\n"
                   f"• [b]{yaml_name}[/b] — a starter YAML to edit\n\n"
-                  "[b]Next:[/b] build a playable seed with\n"
-                  f"  ~/repos/AP/games/musipelago/gen.sh \"{folder}/{apworld_name}\"\n"
+                  "[b]Next — build a playable seed[/b] (Copy command, run in a terminal):\n"
+                  f"{cmd}\n\n"
                   "then host it (MultiServer) and connect the client with the catalog."))
         body.bind(size=lambda lbl, *_: setattr(lbl, 'text_size', lbl.size))
         panel.add_widget(body)
 
         row = BoxLayout(size_hint_y=None, height='44dp', spacing='10dp')
+        copy_btn = Button(text='Copy command')
+        copy_btn.bind(on_release=lambda *_: (Clipboard.copy(cmd),
+                      setattr(app.root, 'status_text', 'Seed command copied to clipboard.')))
         open_btn = Button(text='Open folder')
         open_btn.bind(on_release=lambda *_: _open_path(folder))
         close_btn = Button(text='Close')
+        row.add_widget(copy_btn)
         row.add_widget(open_btn)
         row.add_widget(close_btn)
         panel.add_widget(row)
 
-        popup = Popup(title="APWorld generated", content=panel, size_hint=(0.8, 0.6))
+        popup = Popup(title="APWorld generated", content=panel, size_hint=(0.85, 0.6))
         close_btn.bind(on_release=popup.dismiss)
         popup.open()
 
@@ -881,23 +895,24 @@ class TrackSelectionPopup(Popup):
         self._rows = []
         for track in self._tracks:
             checked = self._selected_uris is None or track.uri in self._selected_uris
-            row = BoxLayout(orientation='horizontal', size_hint_y=None,
-                            height=dp(32), spacing=dp(8))
-            # Brighten the tick so it reads on the dark popup background.
-            checkbox = CheckBox(active=checked, size_hint_x=None, width=dp(40),
-                                color=(1, 1, 1, 1))
             secs = max(0, int((track.duration_ms or 0) / 1000))
             duration = f"{secs // 60}:{secs % 60:02d}"
-            label = Label(text=f"{track.title}  ({duration})", halign='left',
-                          valign='middle')
-            label.bind(size=lambda lbl, *_: setattr(lbl, 'text_size', lbl.size))
-            row.add_widget(checkbox)
-            row.add_widget(label)
-            box.add_widget(row)
-            self._rows.append((checkbox, track))
+            label = f"{track.title}  ({duration})"
+            # Full-row ToggleButton instead of a bare CheckBox: an [x]/[ ] prefix
+            # reads clearly on the dark popup (where the checkbox glyph did not),
+            # and the whole row is clickable.
+            btn = ToggleButton(
+                text=("[x]  " if checked else "[  ]  ") + label,
+                state='down' if checked else 'normal',
+                size_hint_y=None, height=dp(36), halign='left', valign='middle')
+            btn.bind(size=lambda b, *_: setattr(b, 'text_size', (b.width - dp(16), None)))
+            btn.bind(state=lambda b, st, lbl=label: setattr(
+                b, 'text', ("[x]  " if st == 'down' else "[  ]  ") + lbl))
+            box.add_widget(btn)
+            self._rows.append((btn, track))
 
     def on_ok(self):
-        states = [checkbox.active for checkbox, _ in self._rows]
+        states = [btn.state == 'down' for btn, _ in self._rows]
         album, resolve = self.album, self.on_resolve
         self.dismiss()
         resolve(album, states)
@@ -1250,6 +1265,30 @@ class RootLayout(BoxLayout):
         out_row.add_widget(out_lbl)
         out_row.add_widget(change_btn)
         panel.add_widget(out_row)
+
+        # Archipelago folder: used to build the copy-command for the seed helper.
+        ap_row = BoxLayout(size_hint_y=None, height='44dp', spacing='10dp')
+        ap_lbl = Label(text=f"Archipelago: {app._load_gen_setting('ap_dir') or '(not set)'}",
+                       halign='left', valign='middle', shorten=True, shorten_from='left')
+        ap_lbl.bind(size=lambda lbl, *_: setattr(lbl, 'text_size', lbl.size))
+
+        def _change_ap(*_):
+            from musipelago.plugins.local_files_backend import DirectoryPickerPopup
+
+            def _picked(path):
+                if path and os.path.isdir(path):
+                    app._save_gen_setting('ap_dir', path)
+                    ap_lbl.text = f"Archipelago: {path}"
+            start = app._load_gen_setting('ap_dir') or os.path.expanduser('~')
+            if not os.path.isdir(start):
+                start = os.path.expanduser('~')
+            DirectoryPickerPopup(initial_path=start, on_selection=_picked).open()
+
+        ap_change = Button(text='Change…', size_hint_x=None, width='100dp')
+        ap_change.bind(on_release=_change_ap)
+        ap_row.add_widget(ap_lbl)
+        ap_row.add_widget(ap_change)
+        panel.add_widget(ap_row)
 
         popup = Popup(title="Settings", content=panel, size_hint=(0.7, 0.7),
                       auto_dismiss=True)

@@ -174,10 +174,28 @@ def test_gen_settings_roundtrip_and_defaults(tmp_path):
     app._save_gen_setting('theme', 'light')
     app._save_gen_setting('last_directory', '/music/lib')
     app._save_gen_setting('last_service', 'local_files_backend')
+    app._save_gen_setting('ap_dir', '/opt/Archipelago')
     # all keys coexist (saving one must not clobber the others)
     assert app._load_gen_setting('theme') == 'light'
     assert app._load_gen_setting('last_directory') == '/music/lib'
     assert app._load_gen_setting('last_service') == 'local_files_backend'
+    assert app._load_gen_setting('ap_dir') == '/opt/Archipelago'
+
+
+def test_track_selection_on_ok_reads_toggle_state():
+    # TrackSelectionPopup rows are ToggleButtons now; on_ok reads .state.
+    recorded = []
+    stub = types.SimpleNamespace(
+        album="ALBUM",
+        on_resolve=lambda alb, states: recorded.append((alb, states)),
+        _rows=[(types.SimpleNamespace(state='down'), 't0'),
+               (types.SimpleNamespace(state='normal'), 't1'),
+               (types.SimpleNamespace(state='down'), 't2')],
+    )
+    stub.dismiss = lambda: None
+    stub.on_ok = types.MethodType(g.TrackSelectionPopup.on_ok, stub)
+    stub.on_ok()
+    assert recorded == [("ALBUM", [True, False, True])]
 
 
 # --- _read_meta_config reads ToggleButton state ---------------------------
