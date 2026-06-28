@@ -551,6 +551,9 @@ class SubsonicClientHost(AbstractClientHost):
             self.playback_info_widget.artist_album = f"{track_obj.artist} - {track_obj.album_title}"
             
             # Attempt to get Cover Art
+            # NOTE: hidden-mode masking (title/artist/art) for the Subsonic now-playing bar is
+            # deferred to the "Subsonic now-playing masking parity" follow-up — mask all three
+            # together there (masking only the art while the name still shows would be incoherent).
             prog = self.app.track_progress.get(uri)
             if prog and (parent := prog.get('parent_uri')):
                 if album := self.app.album_data_cache.get(parent):
