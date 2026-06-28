@@ -98,3 +98,12 @@ def test_curate_true_multitrack_queues_selection():
     c.add_apworld_item(_album(n=5), curate=True)
     assert c.finalized == []                # not added directly
     assert c.queued == [True]              # selection popup queued instead
+
+
+def test_add_apworld_item_stamps_all_tracks_for_edit():
+    c = _container()
+    album = _album(n=4)
+    c.add_apworld_item(album, curate=False)
+    # full track list captured (enables non-lossy Edit later)
+    assert [t.uri for t in album._all_tracks] == [t.uri for t in album.tracks]
+    assert len(album._all_tracks) == 4
