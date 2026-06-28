@@ -103,6 +103,14 @@ variants with no code changes.
   toggle persisted to the gen `JsonStore` + an About/how-to), and clearer `GeneratePopup` labels for
   the A5 mixtape controls. 10 headless tests (`test_gen_ui.py`).
 - **Client — ⏳ not yet.** The same `theme.py` can drive `musipelagoclient.kv`; deferred.
+- **Blank-pane regression fix** (`fix/gen-blank-panes`, off `dev`): the refresh wrapped each
+  `RecycleView` in a `FloatLayout` for the empty-state overlay but gave them no `pos_hint`, so the
+  lists were positioned at the window origin and panes looked blank (rows + buttons invisible, scan
+  unreachable). Fixed with `size_hint: 1,1` + `pos_hint: {x:0,y:0}` on both RecycleViews. Also kept
+  the Settings button out of the hidden search box (Local Files hid the whole bar incl. the recovery
+  entry) by wrapping search inputs in `search_controls`, and added **last-folder memory**
+  (`gen_settings.last_directory`, pre-filled at next login). Lesson: kv-*parse* tests don't catch
+  *layout* bugs — these need a real-display smoke check.
 - **Local-files onboarding fix** (`fix/local-files-onboarding`, off `dev`): the refresh had hidden
   the per-row `...` button that drove plugin action rows, leaving Local Files' "Create New Album" /
   "Scan Root Directory" rows dead (no buttons) → fixed by giving plugin rows a primary button routed

@@ -73,7 +73,7 @@ def test_refresh_actions_search_artist_is_albums_with_secondary():
 def test_refresh_actions_apworld_is_remove():
     s = _row("apworld", _album())
     s._refresh_actions()
-    assert s.primary_label == "✕ Remove" and s.has_secondary is False
+    assert s.primary_label == "Remove" and s.has_secondary is False
 
 
 def test_refresh_actions_load_more_button():
@@ -140,3 +140,25 @@ def test_apworld_summary_singular_grammar():
     stub.on_apworld_data = types.MethodType(g.ListContainer.on_apworld_data, stub)
     stub.on_apworld_data(stub, [_album("solo", 1)])
     assert stub.apworld_summary == "Your APWorld — 1 album · 1 track"
+
+
+# --- gen_settings persistence (theme + last_directory coexist) -------------
+
+def _app_with_store(tmp_path):
+    from kivy.storage.jsonstore import JsonStore
+    stub = types.SimpleNamespace(store=JsonStore(str(tmp_path / "gen.json")))
+    stub._load_gen_setting = types.MethodType(g.MusipelagoAPWGenApp._load_gen_setting, stub)
+    stub._save_gen_setting = types.MethodType(g.MusipelagoAPWGenApp._save_gen_setting, stub)
+    return stub
+
+
+def test_gen_settings_roundtrip_and_defaults(tmp_path):
+    app = _app_with_store(tmp_path)
+    assert app._load_gen_setting('theme', 'dark') == 'dark'   # missing -> default
+    assert app._load_gen_setting('last_directory') is None
+
+    app._save_gen_setting('theme', 'light')
+    app._save_gen_setting('last_directory', '/music/lib')
+    # both keys coexist (saving one must not clobber the other)
+    assert app._load_gen_setting('theme') == 'light'
+    assert app._load_gen_setting('last_directory') == '/music/lib'
