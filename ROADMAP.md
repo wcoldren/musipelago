@@ -35,7 +35,12 @@ You identify the playing track (fuzzy-match on `GenericTrack.{title,artist,album
 - **A2a — gate the existing check** — ✅ **DONE** (client-only, no regen, works on current seeds):
   "Guess mode" toggle in Settings; when on, finishing a track no longer auto-awards its check —
   a per-row **Guess** button opens a prompt and a correct (fuzzy) title guess awards the check via
-  the shared `RootLayout.complete_track`. Reveal = give up. Shipped on `feat/guess-mode` → `dev`.
+  the shared `RootLayout.complete_track`. **Reveal = give up but STILL releases the check** (so an
+  unguessable track can never soft-lock the seed/multiworld). Shipped on `feat/guess-mode` → `dev`.
+- **A2c — Guess hints** (🟢🟡 · client): progressive hints to help guessing short of giving up —
+  e.g. reveal the artist, then album, then word-count / first letters. Lets players make progress
+  without a full reveal. Builds on the guess popup. (Distinct from AP's existing `!hint` server
+  hints, which point to item locations.)
 - **A2b — bonus "guess" checks** (🟡🔴, world + regen): generate a SECOND location per track
   ("Guess: <track>") so a correct guess is a genuinely *extra* check (more items/progression).
   Touches `Locations.py.j2` / `Items.py.j2` / `Rules.py.j2` and requires regenerating seeds.

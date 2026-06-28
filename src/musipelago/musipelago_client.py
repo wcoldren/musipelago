@@ -674,7 +674,7 @@ class RootLayout(BoxLayout):
         guess_btn.bind(on_release=_on_guess_toggle)
         panel.add_widget(guess_btn)
         panel.add_widget(Label(
-            text="Name the track to earn its check (needs Hidden mode on). Reveal = give up, no credit.",
+            text="Name the track to earn its check (needs Hidden mode on). Reveal = give up — it still releases the check so you're never stuck.",
             size_hint_y=None, height='30dp', halign='left', valign='middle'))
 
         # Plugin-specific settings, if the backend provides any.
@@ -891,7 +891,17 @@ class RootLayout(BoxLayout):
             track_data['text_line_3'] = track_data['raw_line3']
 
     def reveal_track(self, track_uri):
-        """Manual peek / give up: reveal a single hidden track without marking it finished."""
+        """Reveal a hidden track.
+
+        In guess mode, revealing means 'give up' — but we still RELEASE the location check so
+        progress can never soft-lock (an unguessable track must not block the seed/multiworld).
+        In plain hidden mode (no guessing), revealing is just a peek and awards nothing.
+        """
+        app = App.get_running_app()
+        if getattr(app, 'guess_mode', False):
+            self.complete_track(track_uri)  # gave up, but release the check so nobody is blocked
+            app.show_toast("Revealed — check released (gave up).")
+            return
         track_rv = self.ids.list_container.ids.track_rv
         for track_data in track_rv.data:
             if track_data['raw_uri'] == track_uri:
