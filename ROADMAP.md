@@ -273,8 +273,20 @@ in the separate "Subsonic now-playing masking parity" follow-up; row art already
   now-playing metadata. `total_tracks` exists; **album year needs a new `GenericAlbum` field + backend
   changes** (heavier). Pairs with B2 theming. Not done.
 
-### B4. Message log / chat console (TextClient-style) — 🟡 · client · upstream?
-Other AP clients (TextClient, BizHawk) show a scrolling feed of items sent/received, hints, and
+### B4. Message log / chat console (TextClient-style) — 🟢 · client · upstream? — ✅ **DONE**
+**DONE** (`feat/message-log`, off `dev`): a **collapsible right-side panel** — a scrolling
+`RecycleView` feed (`MessageRow` viewclass) that **appends** every resolved `PrintJSON` line
+(bounded ring buffer, 200 rows) instead of overwriting `ap_status_text`, plus a chat `TextInput`
++ Send wired to the existing `send_chat_message`. A "Chat" toggle in the playback bar collapses
+the panel (state persisted in `client_settings`). **Per-part coloring mirrors Archipelago's own
+clients** (`printjson_markup` copies `NetUtils.JSONtoTextParser`'s scheme: items by
+progression/useful/trap/filler, your player magenta vs others' yellow, locations green, entrances
+blue), with bracket escaping so names like `[Radio Edit]` render literally. Pure helpers in
+`utils_client.py` (`compose_printjson_text`, `printjson_markup`, `make_log_entry`, `append_capped`)
+are headless-tested (`tests/test_message_log.py`). The one-line `ap_status_text` bar is preserved.
+Clean and general → still a good upstream PR candidate.
+
+Original notes — Other AP clients (TextClient, BizHawk) show a scrolling feed of items sent/received, hints, and
 chat; the music client shows none of it — you can only watch the stream on the MultiServer console.
 The plumbing is half-built: inbound `PrintJSON` is parsed and item/location/player ids resolved to
 names (`musipelago_client.py` ~1494 via `get_ap_info`), but only the **latest** line is kept — it
@@ -359,6 +371,19 @@ green confirmed on first push.)
   with **true alpha** (generate on a solid bg + remove.bg/Inkscape rather than relying on AI
   "transparency"). Add **multi-resolution `.icns` (macOS `iconutil`) + `.ico` (Windows)** for
   packaging. (AP's icon is crisp because it's a simple flat logo at exact sizes.) — 🟢 all
+- **D7.** Continuous playback — auto-advance to the next track when one finishes — 🟢 client.
+  The queue/auto-advance machinery already exists: `on_playback_finished`
+  (`local_files_backend.py:1241`) plays `playback_queue[queue_index+1]`, and `_play_album` queues a
+  whole album so it flows track-to-track in order. But **clicking a single track** (`_play_track`
+  :1336) sets `playback_queue = [that_one_track]`, so playback **stops at the end of the clicked
+  track** instead of continuing into the album. Make a single-track click queue from that track to
+  the end of its parent album (or the whole album starting there) so it auto-advances in the album's
+  defined track order. Works uniformly for **real and meta/"mixed" albums** — both are `GenericAlbum`
+  with an ordered `.tracks` list, so `_play_album`'s existing ordering already applies; the gap is
+  only the single-click path. Decide the desired UX (continue-album vs play-all-from-here vs a
+  repeat/continuous toggle) and respect hidden/guess + ownership gating (skip unowned, no auto-reveal).
+  Cheap, client-only, and a clear quality-of-life win → good upstream candidate. (Subsonic backend
+  has the same single-track-queue shape — mirror the fix there.)
 
 ---
 
@@ -387,10 +412,11 @@ jumps up the list once online/multiworld play starts. A2/A3 are client-side togg
 10. **C1 + C2 + C4b** — reliability phase: auto-reconnect, thread-safety, broad-`except` hardening.
     Promote this the moment online/multiworld play begins.
 
-**Backlog (opportunistic):** D1–D5 above; D3 is partly delivered by A3's Settings surface. Newer
+**Backlog (opportunistic):** D1–D7 above; D3 is partly delivered by A3's Settings surface. Newer
 captures: **A6** (random album reveal — `StartingAlbum: random` usable now, small) and **A8**
 (helpful/"boon" items + filler review) are gameplay siblings of A5/A1; **A7** (per-song unlock) is a
-larger world+regen item; **B4** (message log / chat console) is a UI backlog item.
+larger world+regen item; **D7** (continuous playback / auto-advance) is a cheap client QoL win.
+**B4** (message log / chat console) — ✅ **done** (`feat/message-log`; AP-mirrored per-part coloring).
 **Dependencies:** A3 → A2 (reveal plumbing) and A3 → Settings surface (reused by C3, B2);
 A1 → A4; A1 → A8 (boon items reuse the trap dispatch hook); A5 builds on meta-albums; B3 pairs
 with B2; A7 pairs with A2b and ↔ A6 (start semantics); C4b travels with C1/C2.
