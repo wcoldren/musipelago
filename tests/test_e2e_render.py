@@ -145,6 +145,26 @@ def test_seek_trap_item_rendered(rendered):
     assert re.search(r'"Seek Trap":\s*\d+', items)  # weighted in trap_weights
 
 
+def test_boon_items_and_slotdata_rendered(rendered):
+    """A8: the boon items are baked into boon_items/item_table with `useful` classification,
+    fill_slot_data emits a `boons` block (names from boon_items), and the boon options exist
+    and are wired into the dataclass. The whole world already compiles (fixture)."""
+    texts, _ = rendered
+    items, init, opts = texts["Items.py.j2"], texts["__init__.py.j2"], texts["Options.py.j2"]
+
+    # Both boons present with `useful` classification and unique ids.
+    assert re.search(r'"Reveal Token":\s*ItemData\(\d+,\s*ItemClassification\.useful', items)
+    assert re.search(r'"Skip Token":\s*ItemData\(\d+,\s*ItemClassification\.useful', items)
+    boon_ids = re.findall(r'"[^"]+ Token":\s*ItemData\((\d+),\s*ItemClassification\.useful', items)
+    assert len(boon_ids) >= 2 and len(boon_ids) == len(set(boon_ids))
+    # boon_items feeds both item_table and slot_data names.
+    assert "boon_items" in items and "**boon_items" in items
+    assert '"boons"' in init and "boon_items.keys()" in init
+    # Options exist and are wired into the dataclass.
+    assert "class EnableBoons(Toggle)" in opts and "class BoonPercentage(Range)" in opts
+    assert "EnableBoons:" in opts and "BoonPercentage:" in opts
+
+
 def test_subset_shrinks_rendered_location_count(tmp_path):
     """A5: a `subset=K` build must bake exactly K AP locations into the rendered
     world — proving the check-count knob really shrinks the location pool."""

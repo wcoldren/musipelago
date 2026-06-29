@@ -307,6 +307,16 @@ class AbstractClientHost(EventDispatcher, ABC):
         """
         return False
 
+    def on_boon_received(self, name: str) -> bool:
+        """
+        Called once when a helpful "boon" item is received (A8). Return ``True`` if this host
+        consumed the boon with a backend-specific effect (e.g. reveal a hidden track, skip a
+        track's check), in which case the app suppresses the generic acknowledgement modal;
+        return ``False`` to let the app show it. Optional hook. Boons are always additive —
+        they may grant progress but must never block playback or an AP location.
+        """
+        return False
+
     @abstractmethod
     def get_settings_ui(self) -> BoxLayout | None:
         """

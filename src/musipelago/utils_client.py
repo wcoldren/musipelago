@@ -129,6 +129,21 @@ def pick_shuffle_tracks(pool, n, rng):
     return rng.sample(list(pool), min(n, len(pool)))
 
 
+# --- Boon selection (A8; pure; used by the client's Skip/Reveal Token effects) ---
+def eligible_skip_tracks(track_progress, owned_albums):
+    """URIs of tracks a Skip Token may auto-complete: owned but NOT yet finished.
+
+    The inverse of ``eligible_shuffle_tracks`` — a Skip Token releases the check of a track you
+    haven't finished, so we only offer owned tracks still missing their check. Returns ``[]``
+    when everything owned is finished (the effect then falls back to the modal — never a silent
+    no-op). Pure (no Kivy) so it tests headlessly."""
+    return [
+        uri
+        for uri, data in track_progress.items()
+        if not data.get("is_finished") and data.get("parent_uri") in owned_albums
+    ]
+
+
 # --- Seek Trap (pure; used by the client's Seek/Scrub Trap effect) ---
 def seek_trap_target(pos, dur, delta, end_margin=2.0):
     """Bounds-clamped seek target (seconds) for the Seek Trap.

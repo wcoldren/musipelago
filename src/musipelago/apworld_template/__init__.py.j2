@@ -17,7 +17,7 @@ from worlds.AutoWorld import World, CollectionState, WebWorld
 from typing import Dict
 
 from .Locations import get_location_names, get_total_locations
-from .Items import create_item, create_itempool, item_table, trap_items
+from .Items import boon_items, create_item, create_itempool, item_table, trap_items
 from .Options import MusipelagoOptions
 from .Regions import create_regions
 from .Types import AlbumType, album_id_to_title
@@ -124,6 +124,12 @@ class MusipelagoWorld(World):
             "traps": {
                 "enabled": bool(self.options.EnableTraps.value),
                 "names": list(trap_items.keys()),
+            },
+            # Same, for helpful "boon" items (A8) — the positive counterpart to
+            # traps, dispatched once per instance via a parallel client path.
+            "boons": {
+                "enabled": bool(self.options.EnableBoons.value),
+                "names": list(boon_items.keys()),
             }
         }
 
