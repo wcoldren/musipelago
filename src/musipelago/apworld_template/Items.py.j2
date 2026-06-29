@@ -150,11 +150,15 @@ junk_weights = {
 # these names must match what fill_slot_data sends.
 trap_items = {
     "Bad Track Trap": ItemData(2005001, ItemClassification.trap, 0),
+    "Shuffle Trap": ItemData(2005002, ItemClassification.trap, 0),
 }
 
-# Same idea as junk_weights, but for the trap pool.
+# Same idea as junk_weights, but for the trap pool. "Shuffle Trap" is the
+# flagship effect (force-replay N already-finished tracks), weighted above the
+# content-free reference "Bad Track Trap" so seeds mostly roll the real effect.
 trap_weights = {
     "Bad Track Trap": 1,
+    "Shuffle Trap": 3,
 }
 
 # This makes a really convenient list of all the other dictionaries
