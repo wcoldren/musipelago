@@ -371,7 +371,15 @@ green confirmed on first push.)
   with **true alpha** (generate on a solid bg + remove.bg/Inkscape rather than relying on AI
   "transparency"). Add **multi-resolution `.icns` (macOS `iconutil`) + `.ico` (Windows)** for
   packaging. (AP's icon is crisp because it's a simple flat logo at exact sizes.) — 🟢 all
-- **D7.** Continuous playback — auto-advance to the next track when one finishes — 🟢 client.
+- **D7. ✅ DONE** — Continuous playback / auto-advance — 🟢 client.
+  Shipped on `feat/d7-continuous-playback` (off `dev`, merged `--no-ff`): a single-track click now
+  queues from the clicked track through the end of the album **currently shown** (real or
+  meta/Mixtape) instead of stopping after one track. New pure `build_continuation_queue(album,
+  track_uri)` in `utils_client.py`; `_play_track` resolves the displayed container via
+  `_current_track_container_uri` (not `parent_uri`, so a Mixtape continues through itself) with a
+  single-track fallback (never softlock); subsonic backend mirrors it. Made the new default (no
+  toggle). Shuffle Trap save/restore is length-agnostic — verified by regression test. +10 headless
+  tests (138 total). Manual GUI playtest still pending. *Original analysis below:*
   The queue/auto-advance machinery already exists: `on_playback_finished`
   (`local_files_backend.py:1241`) plays `playback_queue[queue_index+1]`, and `_play_album` queues a
   whole album so it flows track-to-track in order. But **clicking a single track** (`_play_track`
