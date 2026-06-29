@@ -1108,13 +1108,19 @@ class LocalFilesClientHost(AbstractClientHost):
             pos = player.get_position()
             dur = player.get_duration()
 
-            # Update the GenericPlaybackInfo widget
-            if self.playback_info_widget and dur > 0:
-                self.playback_info_widget.progress_value = (pos / dur) * 100
-                self.playback_info_widget.current_time = self.root_layout.format_duration(
-                    pos * 1000
-                )
-                self.playback_info_widget.total_time = self.root_layout.format_duration(dur * 1000)
+            widget = self.playback_info_widget
+            if not widget:
+                return
+
+            # Elapsed time depends only on position, so update it every tick — even
+            # before VLC has parsed the stream length (get_length() returns 0 for the
+            # first moments of a track). Gating this behind `dur > 0` left the timer
+            # frozen at "00:00" while audio was already playing (the intermittent
+            # "0:00 - 0:00" display). Progress + total still wait for a known duration.
+            widget.current_time = self.root_layout.format_duration(pos * 1000)
+            if dur > 0:
+                widget.progress_value = (pos / dur) * 100
+                widget.total_time = self.root_layout.format_duration(dur * 1000)
 
         except Exception:
             pass
