@@ -653,12 +653,16 @@ class SubsonicClientHost(AbstractClientHost):
         try:
             pos = player.get_position()
             dur = player.get_duration()
-            if self.playback_info_widget and dur > 0:
-                self.playback_info_widget.progress_value = (pos / dur) * 100
-                self.playback_info_widget.current_time = self.root_layout.format_duration(
-                    pos * 1000
-                )
-                self.playback_info_widget.total_time = self.root_layout.format_duration(dur * 1000)
+            widget = self.playback_info_widget
+            if not widget:
+                return
+            # Elapsed time depends only on position — update every tick even before the
+            # stream length is known (get_length() returns 0 for a moment), so the timer
+            # doesn't freeze at "00:00" while audio plays. Progress + total wait for dur.
+            widget.current_time = self.root_layout.format_duration(pos * 1000)
+            if dur > 0:
+                widget.progress_value = (pos / dur) * 100
+                widget.total_time = self.root_layout.format_duration(dur * 1000)
         except Exception:
             pass
 
