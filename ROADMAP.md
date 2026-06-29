@@ -56,13 +56,16 @@ rest are deferred. Content-need tiers:
     in `utils_client.{eligible_shuffle_tracks,pick_shuffle_tracks}`; serialized one-at-a-time via
     `_trap_playing`/`_trap_pending`; volume left untouched (respects mute). World item
     `"Shuffle Trap"` (id 2005002, weight 3) in `Items.py.j2`.
-  - **Seek/Scrub Trap** — yank the playhead on the *current* track: **replay the last N seconds**
-    (jump back) or **skip forward N seconds**. Cheap — `audio_player` already exposes
-    position/duration; needs only a `seek`/`set_position` wrapper. **Must clamp to the song's
-    bounds** (`0 ≤ target ≤ duration`): a back-seek floors at 0 (no underflow), a forward-seek
-    near/past the end should clamp just before `duration` (or treat reaching the end as a normal
-    finish) so it never seeks out of range or skips the track's check. Trivial, audio-safe (no
-    volume/flash), reuses the Shuffle Trap's serialization. Good second effect.
+  - **Seek/Scrub Trap** ✅ **DONE** (`feat/seek-trap` → `dev`) — yank the playhead on the
+    *current* track by N seconds, **random direction each fire** (back = replay / forward = skip).
+    Pure `seek_trap_target(pos, dur, delta, end_margin=2.0)` in `utils_client` clamps to bounds:
+    back floors at 0, forward clamps to `dur - end_margin` so the tail still plays out and the
+    track **finishes naturally** (releases its check — never skips it). Added a `set_position`
+    seek wrapper to all three audio players (VLC active). Effect in
+    `LocalFilesClientHost._seek_trap` (routed from `on_trap_received`); nothing playing → falls
+    back to the modal. **Instantaneous, so it does NOT use the Shuffle Trap save/restore queue.**
+    Magnitude is a client setting (`seek_trap_seconds`, default 15, clamp 5–60). Audio-safe (no
+    volume/flash). World item `"Seek Trap"` (id 2005003, weight 3). 11 tests.
   - **Speed Change Trap** — next track chipmunk-fast / sludge-slow (needs a new `set_rate` wrapper
     across the vlc/ff/kivy players — none exposes rate today).
   - **Re-mask Trap** — re-hide the next track's title/artist/art (pure reuse of A3 masking).
@@ -163,7 +166,21 @@ that **requires regen** (AP locations/items are fixed at gen). Knock-ons: item c
 (per-album default ↔ per-track) so existing seeds are unaffected. (`AllowPlayingAnyTrack` already
 lets you *play* any track regardless of unlock — this is about *check-gating*.)
 
-### A8. Helpful / "boon" items + filler review — 🟡 · world (+client) · upstream?
+### A8. Helpful / "boon" items + filler review — 🟡 · world (+client) · upstream? — 🟢 **Reveal + Skip DONE**
+
+**Reveal Token + Skip Token — ✅ DONE** (`feat/boon-items` → `dev`): the first positive items
+(the first `ItemClassification.useful` in the template). Dispatched once-only via a boon path
+that mirrors the trap path 1:1 — `EnableBoons`/`BoonPercentage` options, a `boon_items`/
+`boon_weights` pair (ids 2006001/2006002) carved from the **same filler budget** in
+`create_junk_items` (clamped so traps+boons never overrun it; pool total unchanged), a `"boons"`
+slot_data block, and client `_load_boon_state`/`_dispatch_pending_boons`/`trigger_boon` +
+`AbstractClientHost.on_boon_received`. Effects (`LocalFilesClientHost`): **Skip Token** completes
+one owned-unfinished track via the shared `complete_track` (additive — releases a check, never
+blocks); **Reveal Token** unmasks the currently-playing track via the new pure-reveal
+`RootLayout.reveal_track_metadata` (no give-up, no check; hidden-mode only). Empty/edge pools fall
+back to the acknowledgement modal — never a silent no-op. 13 tests. **Still open below:** Hint
+Token (needs A2c), free-unlock boon (A7), cosmetic boon, and the `junk_weights`/overshoot review.
+
 **Current pool (review, as of `feat/traps-dispatch`):** three classes only — **progression**
 ("Album finished!" victory + one per-album unlock in `ap_skeleton_chapters`), **filler** (4
 pure-flavor no-ops — "Scratched disc", ".mov file", "Funny animal .gif", "Concert tickets" in
