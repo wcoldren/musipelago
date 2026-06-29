@@ -129,6 +129,24 @@ def pick_shuffle_tracks(pool, n, rng):
     return rng.sample(list(pool), min(n, len(pool)))
 
 
+# --- Seek Trap (pure; used by the client's Seek/Scrub Trap effect) ---
+def seek_trap_target(pos, dur, delta, end_margin=2.0):
+    """Bounds-clamped seek target (seconds) for the Seek Trap.
+
+    ``pos``/``dur`` are the current playhead position and track duration in seconds; ``delta``
+    is a signed offset (negative = back-seek/replay, positive = forward-seek/skip). A back-seek
+    floors at 0 (no underflow). A forward-seek clamps to ``dur - end_margin`` (not ``dur``) so
+    the track still plays out its tail and finishes *naturally* — ``on_playback_finished`` then
+    releases the AP check, so the trap can never skip a track's check or seek past the end. When
+    ``dur`` is unknown (VLC returns 0 until the stream is parsed) only the 0 floor applies.
+    Pure (no Kivy) so it tests headlessly."""
+    target = (pos or 0.0) + (delta or 0.0)
+    if not dur or dur <= 0:
+        return max(0.0, target)
+    hi = max(0.0, dur - end_margin)
+    return max(0.0, min(target, hi))
+
+
 # --- Continuous playback (D7; pure helper for the client's auto-advance) ---
 def build_continuation_queue(album, track_uri):
     """Album's tracks from the clicked track through the end of the album (inclusive).

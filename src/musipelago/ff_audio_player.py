@@ -135,6 +135,19 @@ class GenericAudioPlayer:
     def get_duration(self):
         return self.player.get_metadata().get("duration", 0) if self.player else 0
 
+    def set_position(self, seconds):
+        """Seek to an absolute position in SECONDS, clamped to [0, duration]. (Seek Trap.)"""
+        if not self.player:
+            return
+        target = max(0.0, seconds)
+        dur = self.get_duration()
+        if dur and dur > 0:
+            target = min(target, dur)
+        try:
+            self.player.seek(target, relative=False)
+        except Exception:
+            pass
+
     def _update(self, dt):
         if not self.player:
             return

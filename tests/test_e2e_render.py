@@ -132,9 +132,17 @@ def test_shuffle_trap_item_rendered(rendered):
     # Weighted in trap_weights alongside the reference trap.
     assert re.search(r'"Shuffle Trap":\s*\d+', items)
 
-    # Every trap item id is unique (no collision between Bad Track / Shuffle).
+    # Every trap item id is unique (no collision between Bad Track / Shuffle / Seek).
     trap_ids = re.findall(r'"[^"]+ Trap":\s*ItemData\((\d+),\s*ItemClassification\.trap', items)
-    assert len(trap_ids) >= 2 and len(trap_ids) == len(set(trap_ids))
+    assert len(trap_ids) >= 3 and len(trap_ids) == len(set(trap_ids))
+
+
+def test_seek_trap_item_rendered(rendered):
+    """The Seek/Scrub Trap is baked into trap_items/trap_weights with trap classification."""
+    texts, _ = rendered
+    items = texts["Items.py.j2"]
+    assert re.search(r'"Seek Trap":\s*ItemData\(\d+,\s*ItemClassification\.trap', items)
+    assert re.search(r'"Seek Trap":\s*\d+', items)  # weighted in trap_weights
 
 
 def test_subset_shrinks_rendered_location_count(tmp_path):
