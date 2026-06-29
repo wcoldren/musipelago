@@ -120,6 +120,50 @@ Shipped on `feat/randomizer-controls` (off `feat/meta-albums`) → `dev`; 8 test
   per-player at AP-generation using the AP seed (more Archipelago-native, per-player variation in a
   multiworld). Promote once online/multiworld play starts.
 
+### A6. Random / shuffled album reveal order (incl. the starting album) — 🟢 · world/data (+gen) · upstream?
+"Always Eaten Back to Life first" is the **fixed `StartingAlbum: album_001`** (`Options.py.j2`
+`StartingAlbum(Choice)`, `default = 1` = first album in catalog order). Albums are independently
+item-gated (no chain), so *subsequent* unlock order already varies per seed via AP's fill — only
+the start is pinned.
+- **Works today, no code:** set **`StartingAlbum: random`** in the player YAML. AP `Choice`
+  options accept `random` (and `random-low`/`random-high`/weighted dicts), so AP rolls a random
+  album as the start. That alone removes the fixed first album.
+- **Roadmap extras:** (a) make random the convenient default — emit `StartingAlbum: random` in the
+  gen app's starter YAML and document it; (b) optional true **reveal-order control** — a gen/world
+  knob to bias unlock placement so albums reveal in a deliberately shuffled cadence. Mostly docs +
+  a starter-YAML default since the core already works.
+
+### A7. Per-song unlock granularity (unlock single tracks, not whole albums) — 🔴 · world+regen · upstream?
+Today unlocking is **per album**: each album is one Region (`Regions.py.j2:22`
+`create_region_and_connect`) whose entrance "Unlock [artist] [album]" is gated by a single album
+progression item (`Rules.py.j2:23-24`, `state.has("[artist] [album]")`); every track is a location
+inside that region, so one item reveals the whole album (`ap_skeleton_chapters` = one progression
+item per album). **No per-track gating exists.** A "single song" mode gates each track on its own
+item/rule (per-track entrance rules or per-track regions) + one unlock item per track — a
+structural generation-time change across `Items/Locations/Regions/Rules.py.j2` (+ `Types`/`__init__`)
+that **requires regen** (AP locations/items are fixed at gen). Knock-ons: item count grows to
+~#tracks (re-balance the filler/trap/overshoot math); victory + `StartingAlbum` semantics shift
+(start = a track? an album?); pairs with A2b. Best as a gen/world **mode toggle**
+(per-album default ↔ per-track) so existing seeds are unaffected. (`AllowPlayingAnyTrack` already
+lets you *play* any track regardless of unlock — this is about *check-gating*.)
+
+### A8. Helpful / "boon" items + filler review — 🟡 · world (+client) · upstream?
+**Current pool (review, as of `feat/traps-dispatch`):** three classes only — **progression**
+("Album finished!" victory + one per-album unlock in `ap_skeleton_chapters`), **filler** (4
+pure-flavor no-ops — "Scratched disc", ".mov file", "Funny animal .gif", "Concert tickets" in
+`junk_items`, equal `junk_weights`, **zero gameplay effect**), and **trap** ("Bad Track Trap").
+There are **no `ItemClassification.useful` items and no positive-effect items** — filler is cosmetic
+text, traps are the only items that *do* something.
+**Proposal — add helpful "boon" items as the positive counterpart to traps**, reusing A1's
+once-only dispatch (the `_dispatch_pending_traps` / `on_trap_received` machinery generalizes to a
+per-item effect hook). Candidates (client-side, softlock-safe): **Reveal token** (reveal one hidden
+track — A3 synergy), **Skip/auto-complete token** (release one track's check — also a guess-mode
+escape, A2), **Hint** (cheap progressive hint, A2c), **Unlock-a-track / free unlock** (grant one
+album/track early — pairs with A7), **cosmetic/theme boon**. Classify `useful` (or `progression`
+if they grant unlocks). Also rebalance `junk_weights`, decide the junk/trap/useful split, and fold
+in the known item-pool **overshoot** quirk (`get_total_locations - len(itempool) - 1` ignores the
+locked victory locations). Same trap-safety rules apply (no softlock).
+
 ## B. UI / UX
 
 ### B1. Fix long-title text overflow — 🟢 · client · upstream? — ✅ **DONE**
@@ -212,6 +256,19 @@ in the separate "Subsonic now-playing masking parity" follow-up; row art already
 - **Backlog extension ("other cool tokens"):** surface track count / album year in the row +
   now-playing metadata. `total_tracks` exists; **album year needs a new `GenericAlbum` field + backend
   changes** (heavier). Pairs with B2 theming. Not done.
+
+### B4. Message log / chat console (TextClient-style) — 🟡 · client · upstream?
+Other AP clients (TextClient, BizHawk) show a scrolling feed of items sent/received, hints, and
+chat; the music client shows none of it — you can only watch the stream on the MultiServer console.
+The plumbing is half-built: inbound `PrintJSON` is parsed and item/location/player ids resolved to
+names (`musipelago_client.py` ~1494 via `get_ap_info`), but only the **latest** line is kept — it
+overwrites the single-line `ap_status_text` bar (`StringProperty` :597, rendered by the lone
+`ap_status_bar` Label, `musipelagoclient.kv:117`). Outbound chat already works:
+`send_chat_message`/`_async_send_say` send a `Say` packet (:1634), used today only to fire `!hint`.
+Build: a collapsible **log panel** (a `RecycleView` like the track lists, or a scrolling Label in a
+`ScrollView`) that **appends** each resolved `PrintJSON` line to a ring buffer (colour by part type),
+plus an optional **chat `TextInput`** wired straight to `send_chat_message`. Pure UI over existing
+parsing + send paths; no protocol changes. Clean and general → worth a PR upstream.
 
 ## C. Foundation / robustness (make play reliable)
 
@@ -313,9 +370,13 @@ jumps up the list once online/multiworld play starts. A2/A3 are client-side togg
 10. **C1 + C2 + C4b** — reliability phase: auto-reconnect, thread-safety, broad-`except` hardening.
     Promote this the moment online/multiworld play begins.
 
-**Backlog (opportunistic):** D1–D5 above; D3 is partly delivered by A3's Settings surface.
+**Backlog (opportunistic):** D1–D5 above; D3 is partly delivered by A3's Settings surface. Newer
+captures: **A6** (random album reveal — `StartingAlbum: random` usable now, small) and **A8**
+(helpful/"boon" items + filler review) are gameplay siblings of A5/A1; **A7** (per-song unlock) is a
+larger world+regen item; **B4** (message log / chat console) is a UI backlog item.
 **Dependencies:** A3 → A2 (reveal plumbing) and A3 → Settings surface (reused by C3, B2);
-A1 → A4; A5 builds on meta-albums; B3 pairs with B2; C4b travels with C1/C2.
+A1 → A4; A1 → A8 (boon items reuse the trap dispatch hook); A5 builds on meta-albums; B3 pairs
+with B2; A7 pairs with A2b and ↔ A6 (start semantics); C4b travels with C1/C2.
 
 ## Key code references (for implementers)
 
@@ -323,5 +384,6 @@ A1 → A4; A5 builds on meta-albums; B3 pairs with B2; C4b travels with C1/C2.
   `musipelago_client.py` `_sync_owned_items` (~865) / `check_victory` (~934) / list population (~654);
   `backends.py` (`GenericTrack`, `AbstractClientHost`).
 - **UI:** `musipelagoclient.kv` (`CustomListItem` ~235–289, `GenericPlaybackInfo` ~127–189);
-  `client_ui_components.py`.
+  `client_ui_components.py`. Message log/chat (B4): `ap_status_text` (`musipelago_client.py:597`),
+  `PrintJSON` handler (~1494), `ap_status_bar` (`musipelagoclient.kv:117`), `send_chat_message` (:1634).
 - **Robustness:** `musipelago_client.py` `run()` (~841); `vlc_/ff_/kivy_audio_player.py`; `pyproject.toml`.
