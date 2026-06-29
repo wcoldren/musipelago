@@ -50,7 +50,11 @@ from musipelago.utils import (
     collect_source_covers,
     find_cover_in_dir,
 )
-from musipelago.utils_client import eligible_shuffle_tracks, pick_shuffle_tracks
+from musipelago.utils_client import (
+    build_continuation_queue,
+    eligible_shuffle_tracks,
+    pick_shuffle_tracks,
+)
 
 
 def parse_track_no(raw):
@@ -1342,17 +1346,28 @@ class LocalFilesClientHost(AbstractClientHost):
     def _play_track(self, track_uri: str, track_title: str):
         self.stop_polling()
         self._cancel_shuffle_trap()  # user took over -> drop any forced replay/restore
-        track_obj = GenericTrack(
-            uri=track_uri,
-            title=track_title,
-            artist="",
-            album_title="",
-            duration_ms=0,
-            service="local",
-        )
-        self.playback_queue = [track_obj]
+        # D7: auto-advance from the clicked track through the end of the album currently
+        # shown (real or meta/Mixtape), instead of stopping after one track. Use the
+        # displayed container, not track_progress' parent_uri, so a Mixtape continues
+        # through itself rather than a source album.
+        container_uri = getattr(self.app, "_current_track_container_uri", None)
+        album = self.app.album_data_cache.get(container_uri) if container_uri else None
+        queue = build_continuation_queue(album, track_uri) if album else []
+        if not queue:
+            # Unknown container / track not in it -> single-track fallback (never softlock).
+            queue = [
+                GenericTrack(
+                    uri=track_uri,
+                    title=track_title,
+                    artist="",
+                    album_title="",
+                    duration_ms=0,
+                    service="local",
+                )
+            ]
+        self.playback_queue = queue
         self.queue_index = 0
-        self._play_track_internal(track_obj)
+        self._play_track_internal(queue[0])
 
     def _play_album(self, album_uri):
         """

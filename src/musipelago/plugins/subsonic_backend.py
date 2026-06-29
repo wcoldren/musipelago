@@ -29,7 +29,7 @@ from musipelago.backends import (
 
 # --- Import Generic UI ---
 from musipelago.client_ui_components import GenericPlaybackInfo, ItemMenu
-from musipelago.utils_client import KIVY_ICON
+from musipelago.utils_client import KIVY_ICON, build_continuation_queue
 
 
 # -------------------------------------------------------------------
@@ -540,22 +540,22 @@ class SubsonicClientHost(AbstractClientHost):
         track_obj = GenericTrack(
             uri=uri, title=title, artist="", album_title="", duration_ms=0, service="subsonic"
         )
+        # D7: auto-advance from the clicked track through the end of its album instead of
+        # stopping after one track.
+        queue = []
         prog = self.app.track_progress.get(uri)
         if prog:
             parent_uri = prog.get("parent_uri")
             if parent_uri:
                 parent_album = self.app.album_data_cache.get(parent_uri)
                 if parent_album:
-                    # Find the specific track inside this album
-                    for t in parent_album.tracks:
-                        if t.uri == uri:
-                            track_obj = t
-                            break
+                    queue = build_continuation_queue(parent_album, uri)
         # --------------------------------------------------
 
-        self.playback_queue = [track_obj]
+        # Single-track fallback if the album/track couldn't be resolved (never softlock).
+        self.playback_queue = queue or [track_obj]
         self.queue_index = 0
-        self._play_track_internal(track_obj)
+        self._play_track_internal(self.playback_queue[0])
 
     def _play_album(self, album_uri):
         album = self.app.album_data_cache.get(album_uri)
