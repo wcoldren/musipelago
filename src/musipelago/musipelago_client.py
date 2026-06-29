@@ -98,8 +98,12 @@ from musipelago.plugin_loader import PluginManager
 from musipelago.utils_client import (
     KIVY_ICON,
     _titles_match,
+    append_capped,
+    compose_printjson_text,
     count_pending_traps,
     global_exception_handler,
+    make_log_entry,
+    printjson_markup,
     unmask_row,
 )
 from musipelago.vlc_audio_player import GenericAudioPlayer
@@ -489,6 +493,11 @@ class ArchipelagoLoginPopup(Popup):
 # can be unit-tested without importing the VLC-backed client module.
 
 
+class MessageRow(Label):
+    """One row in the B4 message feed (RecycleView viewclass). The ``text`` is Kivy
+    markup with per-part AP coloring; the kv rule renders it with ``markup: True``."""
+
+
 # --- ToastMessage, ItemMenu, CustomListItem, ListContainer (Unchanged) ---
 class CustomListItem(ButtonBehavior, BoxLayout):
     text_line_1 = StringProperty("Line 1")
@@ -599,12 +608,17 @@ class RootLayout(BoxLayout):
     previous_volume = NumericProperty(50)
     is_playing = BooleanProperty(False)
     playback_info_widget = ObjectProperty(None)
+    # B4 message log / chat console
+    message_log_data = ListProperty()
+    log_panel_open = BooleanProperty(True)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # Bind the RootLayout's is_playing property to the method that updates the button text
         self.bind(is_playing=self.on_is_playing_changed)
         self._last_known_volume = 50
+        # Reflect the persisted message-panel visibility (loaded into the App on build).
+        self.log_panel_open = bool(getattr(App.get_running_app(), "log_panel_open", True))
         self.set_status(self._status_text_internal)
 
     def set_status(self, text):
@@ -620,6 +634,33 @@ class RootLayout(BoxLayout):
             self.ids.play_pause_button.text = "Pause"
         else:
             self.ids.play_pause_button.text = "Play"
+
+    def append_log_message(self, text):
+        """Append one message (Kivy markup) to the scrolling feed (B4). Bounded so a long
+        session can't grow the log unbounded; the kv ``data:`` binding refreshes the view."""
+        if not text:
+            return
+        append_capped(self.message_log_data, make_log_entry(text))
+
+    def on_chat_submit(self, text):
+        """Send a chat line to the AP server from the input box (B4). No local echo —
+        the server echoes ``Say`` back as a PrintJSON, so the feed shows it once."""
+        text = (text or "").strip()
+        if not text:
+            return
+        ap_client = getattr(App.get_running_app(), "ap_client", None)
+        if ap_client is not None:
+            ap_client.send_chat_message(text)
+        else:
+            self.append_log_message("Not connected — message not sent.", "server")
+
+    def toggle_log_panel(self):
+        """Show/hide the right-side message panel and persist the choice via the
+        App's client_settings (same store as the hidden/guess/shuffle toggles)."""
+        self.log_panel_open = not self.log_panel_open
+        app = App.get_running_app()
+        app.log_panel_open = self.log_panel_open
+        app._save_client_settings()
 
     def format_duration(self, ms):
         if not isinstance(ms, (int, float)) or ms < 0:
@@ -1540,32 +1581,21 @@ class ArchipelagoClient:
                             self.checked_locations.update(newly_checked)
                     elif cmd == "PrintJSON":
                         data_parts = packet.get("data", [])
-                        message_text = ""
-                        for part in data_parts:
-                            if not isinstance(part, dict):
-                                continue
-                            text = part.get("text", "")
-                            part_type = part.get("type")
-                            try:
-                                if part_type == "player_id":
-                                    message_text += self.get_ap_info(player_id=text, entity_id=0)[0]
-                                elif part_type == "item_id":
-                                    message_text += self.get_ap_info(
-                                        part.get("player"), int(text), is_location=False
-                                    )[2]
-                                elif part_type == "location_id":
-                                    message_text += self.get_ap_info(
-                                        part.get("player"), int(text), is_location=True
-                                    )[2]
-                                else:
-                                    message_text += text
-                            except Exception:
-                                message_text += text
+                        # Plain text for the one-line status bar; AP-colored markup for the feed.
+                        message_text = compose_printjson_text(
+                            data_parts, self._resolve_printjson_part
+                        )
                         if message_text:
+                            markup_text = printjson_markup(
+                                data_parts, self._resolve_printjson_part, self.slot_id
+                            )
                             Clock.schedule_once(
                                 lambda dt, m=message_text: setattr(
                                     self.app.root, "ap_status_text", m
                                 )
+                            )
+                            Clock.schedule_once(
+                                lambda dt, m=markup_text: self.app.root.append_log_message(m)
                             )
                         if packet.get("type") == "Hint":
                             if item_data := packet.get("item"):
@@ -1698,6 +1728,16 @@ class ArchipelagoClient:
         Logger.warning(f"AP: Reporting error: {error_message}")
         Clock.schedule_once(lambda dt: self.app.on_connection_failed(error_message))
 
+    def _resolve_printjson_part(self, part_type, text, part):
+        """Resolve a single typed PrintJSON part to a display name (used by the pure
+        ``compose_printjson_text``). Mirrors the original inline lookups exactly."""
+        if part_type == "player_id":
+            return self.get_ap_info(player_id=text, entity_id=0)[0]
+        if part_type == "item_id":
+            return self.get_ap_info(part.get("player"), int(text), is_location=False)[2]
+        # location_id
+        return self.get_ap_info(part.get("player"), int(text), is_location=True)[2]
+
     def get_ap_info(self, player_id, entity_id, is_location=False):
         player_id_str = str(player_id)
         player_name = "Unknown Player"
@@ -1752,6 +1792,7 @@ class MusipelagoClientApp(App):
         self.hidden_metadata = False  # "unknown song" practice mode (client-side toggle)
         self.guess_mode = False  # earn a track's check by correctly naming it (client-side toggle)
         self.shuffle_trap_count = 1  # how many already-played tracks a Shuffle Trap replays
+        self.log_panel_open = True  # B4 message-log panel visibility (client-side toggle)
         self.traps_enabled = False  # set from slot_data on connect
         self._trap_modal_queue = []  # pending trap effects, shown one at a time
         self._trap_modal_open = False
@@ -1796,6 +1837,7 @@ class MusipelagoClientApp(App):
                 self.hidden_metadata = bool(cs.get("hidden_metadata", False))
                 self.guess_mode = bool(cs.get("guess_mode", False))
                 self.shuffle_trap_count = max(1, int(cs.get("shuffle_trap_count", 1)))
+                self.log_panel_open = bool(cs.get("log_panel_open", True))
         except Exception as e:
             Logger.warning(f"Cache: Could not load client settings: {e}")
 
@@ -2156,6 +2198,7 @@ class MusipelagoClientApp(App):
                 hidden_metadata=bool(self.hidden_metadata),
                 guess_mode=bool(self.guess_mode),
                 shuffle_trap_count=int(self.shuffle_trap_count),
+                log_panel_open=bool(self.log_panel_open),
             )
         except Exception as e:
             Logger.warning(f"Cache: Could not save client settings: {e}")
