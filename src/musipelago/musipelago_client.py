@@ -1814,6 +1814,8 @@ class MusipelagoClientApp(App):
         self.theme_name = name
         for key in theme.KEYS:
             setattr(self, f"col_{key}", pal[key])
+        # Flip the window backdrop too, so canvas-less areas aren't stuck dark in light mode.
+        Window.clearcolor = pal["bg"]
         if persist:
             self._save_client_settings()
 
