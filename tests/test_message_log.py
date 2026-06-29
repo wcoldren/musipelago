@@ -9,6 +9,8 @@ back the bounded scrolling feed.
 
 from musipelago.utils_client import (
     AP_COLOR_CODES,
+    AP_COLOR_CODES_LIGHT,
+    ap_color_codes,
     append_capped,
     compose_printjson_text,
     make_log_entry,
@@ -113,6 +115,34 @@ def test_markup_escapes_brackets_in_names():
     out = printjson_markup([{"type": "item_id", "text": "1", "player": 1, "flags": 0}], resolve)
     assert "&bl;Radio Edit&br;" in out
     assert "[Radio Edit]" not in out
+
+
+# --- per-theme AP colors (light variant) ---
+def test_ap_color_codes_selects_by_theme():
+    assert ap_color_codes("light") is AP_COLOR_CODES_LIGHT
+    assert ap_color_codes("dark") is AP_COLOR_CODES
+    assert ap_color_codes("nonsense") is AP_COLOR_CODES  # fallback dark
+
+
+def test_markup_uses_light_map_when_passed():
+    parts = [{"type": "item_id", "text": "1", "player": 1, "flags": 1}]  # progression -> plum
+    light = AP_COLOR_CODES_LIGHT["plum"]
+    assert printjson_markup(parts, _resolve, color_codes=AP_COLOR_CODES_LIGHT) == (
+        f"[color={light}]Item1[/color]"
+    )
+    # The light plum differs from the dark plum (i.e. the theme actually changes the output).
+    assert AP_COLOR_CODES_LIGHT["plum"] != AP_COLOR_CODES["plum"]
+
+
+def test_markup_default_color_map_is_dark_unchanged():
+    # Back-compat: omitting color_codes keeps the original dark hexes.
+    parts = [{"type": "location_id", "text": "7", "player": 1}]
+    assert printjson_markup(parts, _resolve) == f"[color={AP_COLOR_CODES['green']}]Loc7[/color]"
+
+
+def test_light_map_covers_every_dark_key():
+    # Same key set so no part-type ever falls back to an undefined color in light mode.
+    assert set(AP_COLOR_CODES_LIGHT) == set(AP_COLOR_CODES)
 
 
 # --- make_log_entry ---

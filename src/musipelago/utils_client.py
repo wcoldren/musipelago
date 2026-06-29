@@ -189,6 +189,29 @@ AP_COLOR_CODES = {
     "orange": "FF7700",
 }
 
+# Same color names, darkened for legibility on a LIGHT background (the dark hexes above wash
+# out on light — e.g. pale yellow / white / bright cyan vanish). Used when theme == "light".
+AP_COLOR_CODES_LIGHT = {
+    "black": "000000",
+    "red": "C00000",
+    "green": "1A7A3A",
+    "yellow": "9A7D00",
+    "blue": "2A52BE",
+    "magenta": "A000A0",
+    "cyan": "0A8A8A",
+    "slateblue": "3D5BA8",
+    "plum": "7D4FBB",
+    "salmon": "C0392B",
+    "white": "333333",
+    "orange": "C75000",
+}
+
+
+def ap_color_codes(theme_name):
+    """Pick the AP markup color map for the active theme: the light-tuned map for ``"light"``,
+    otherwise the dark map. Pure."""
+    return AP_COLOR_CODES_LIGHT if str(theme_name).lower() == "light" else AP_COLOR_CODES
+
 
 def _escape_kivy_markup(text):
     """Escape Kivy markup metacharacters so literal brackets in item/track names
@@ -230,13 +253,14 @@ def _part_color_name(part, self_slot):
     return None
 
 
-def printjson_markup(data_parts, resolve, self_slot=None):
+def printjson_markup(data_parts, resolve, self_slot=None, color_codes=AP_COLOR_CODES):
     """Compose a Kivy-markup string from a PrintJSON ``data`` parts list, coloring each
     part the way Archipelago's own clients do: items by progression/useful/trap/filler,
     player names (your own magenta vs others' yellow via ``self_slot``), locations green,
     entrances blue. ``resolve(part_type, text, part)`` resolves the ``*_id`` parts to names
-    (the same resolver ``compose_printjson_text`` uses). Pure (no Kivy) so it tests
-    headlessly."""
+    (the same resolver ``compose_printjson_text`` uses). ``color_codes`` is the name->hex map
+    for the active theme (default: the dark map; pass ``ap_color_codes(theme_name)`` for the
+    light variant). Pure (no Kivy) so it tests headlessly."""
     out = []
     for part in data_parts:
         if not isinstance(part, dict):
@@ -250,7 +274,7 @@ def printjson_markup(data_parts, resolve, self_slot=None):
             text = part.get("text", "")
         escaped = _escape_kivy_markup(text)
         color = _part_color_name(part, self_slot)
-        hexcode = AP_COLOR_CODES.get(color) if color else None
+        hexcode = color_codes.get(color) if color else None
         out.append(f"[color={hexcode}]{escaped}[/color]" if hexcode else escaped)
     return "".join(out)
 
