@@ -104,6 +104,16 @@ You identify the playing track (fuzzy-match on `GenericTrack.{title,artist,album
   Touches `Locations.py.j2` / `Items.py.j2` / `Rules.py.j2` and requires regenerating seeds.
   **AP constraint:** locations are fixed at generation, so bonus checks cannot be added purely
   client-side — they must exist in the seed. Do A2a first, then A2b.
+- **A2d — guess by attribute (song / artist / album)** (🟢🟡 · client-only): today guessing always
+  matches the **title**. Add a Settings **"guess target" selector** (Song / Artist / Album) choosing
+  which attribute you must name to release a track's single check (each track has only ONE AP location,
+  so separate per-attribute *checks* would be A2b/regen — this is "what must you name", not extra
+  checks). The matcher `_normalize_title`/`_titles_match` (`utils_client.py:66-82`) is **already
+  generic** — no change. `guess_track` (`musipelago_client.py`) hardcodes `raw_title` + prompt strings →
+  parameterize `guess_track(track_uri, field=...)`. **Data:** `raw_artist` is already on every row
+  (guess-artist is free); **guess-album needs** a new `"raw_album": container_data.title` in the row
+  dict (container in scope in `populate_track_list`) — note that for mixtapes the album is the
+  "Mixtape NN" name, so album-guessing is most meaningful in non-mixtape builds. Pairs with A2c (hints).
 
 Reveal is available today via a **per-row Reveal button** + the `...` menu (see A3). A reveal
 **hotkey** is in the backlog (D5).
@@ -116,6 +126,16 @@ peek. Album names stay visible. Real values kept as `raw_*` so playback is unaff
 the **client Settings surface** that A2/C3 reuse. Shipped on `feat/client-hidden-mode` → `dev`.
 (Follow-up: Subsonic now-playing masking parity.)
 
+- **A3b — hidden-mode album-art unlock** (🟡 · client-only): the now-playing art + track-row thumbnails
+  already mask in hidden mode, but the **album-list row art is gated only on `is_owned`**
+  (`musipelagoclient.kv:346`; `can_reveal:False` at `:2412`), so an owned **Mixtape's collage cover
+  spoils its contents** (the collage is literally built from its songs' covers). **Chosen design:** in
+  hidden mode, owned-but-unfinished albums show a neutral **"available, art hidden" tile** (distinct from
+  the unowned `LOCKED_ICON`); the real cover + collage **auto-unlock once all the album's tracks are
+  finished** (reuse `all_tracks_finished` + `update_album_all_tracks_finished_status` + the
+  `raw_image_source` mask pattern). Defer building the mixtape collage until reveal so even the thumbnail
+  can't leak. (Note: B6's per-song origin art already masks in hidden mode; this is specifically the
+  album-pane cover.)
 - **Synergy:** A2 + A3 together = a music-learning quiz (blind listen → guess → reveal). Strong combo.
 
 ### A4. (enabler) Generator-side curation for traps/quiz — 🟡 · gen
@@ -342,6 +362,33 @@ Build: a collapsible **log panel** (a `RecycleView` like the track lists, or a s
 `ScrollView`) that **appends** each resolved `PrintJSON` line to a ring buffer (colour by part type),
 plus an optional **chat `TextInput`** wired straight to `send_chat_message`. Pure UI over existing
 parsing + send paths; no protocol changes. Clean and general → worth a PR upstream.
+
+### B5. Now-playing row highlight — 🟢 · client — ✅ **DONE**
+**DONE** (`feat/now-playing-highlight` → `dev`): the currently-playing track's row (track pane) and
+its album's row (album pane) show their **title in theme blue** (`app.col_accent`), sitting above the
+green-finished / amber-hint states in the kv:362 color ternary. Pure `mark_active_rows(rows,
+active_uri)` in `utils_client` (headless-tested) flags the matching row by `raw_uri`; a new
+`is_playing_now` `BooleanProperty` on `CustomListItem` + the key in both row dicts;
+`RootLayout.update_now_playing_highlight()` reads `host.current_playing_track_uri` (album row via
+`track_progress[uri]["parent_uri"]`) and refreshes both RVs. Driven from both backends'
+`_play_track_internal`, `on_stop_click`, and the end of `populate_track_list`. 6 tests.
+
+### B6. Tracks remember their origin album (name + cover) — 🟡 · gen + client — ✅ **DONE (local)**
+**DONE for local files** (`feat/track-origin` → `dev`): mixtape regrouping discarded the source album
+(`build_meta_albums` overwrote `album_title` → "Mixtape NN", and `GenericTrack` had no art field), so a
+mixtape track read the mixtape name and showed the mixtape collage. Now `GenericTrack` carries optional
+`source_album` + `source_image_url` (back-compat defaults; the apworld `{title,uri,artist}` per-track
+serialization is unchanged → **no world-template change**, but **needs an apworld rebuild** to bake the
+fields into `display_data`). `build_meta_albums` tags each track with its origin before regrouping; the
+client now-playing bar shows the **real album** + origin cover, and track-row thumbnails prefer the
+origin art (via pure `now_playing_album` / `resolve_track_art`). Lists keep the Mixtape grouping; the
+album pane keeps the collage (per the user). **Hidden-mode masking is reused unchanged** — the real
+album name + origin art are masked while playing and revealed on finish/peek (so they don't spoil).
+Pure helpers headless-tested (`tests/test_track_origin.py`); 7 tests.
+- **Remaining:** subsonic origin **row-thumbnail** art (the `coverArt` ref needs per-row signing —
+  `populate_track_list` feeds `image_source` directly; the now-playing bar already signs it). Subsonic
+  isn't the local-files target, so it's deferred. Build a fresh apworld via `musipelago-gen` to see the
+  feature (existing catalogs have no `source_*` → fall back to today's behavior).
 
 ## C. Foundation / robustness (make play reliable)
 
