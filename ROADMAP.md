@@ -378,6 +378,22 @@ green confirmed on first push.)
   **"Import single album"**, and folder-memory polish (last service pre-selected; `last_directory`
   restore confirmed working).
 - **D2.** Subsonic gaps: `get_playlist_with_tracks` stub + missing pagination. — 🟡 client
+- **D2b. Subsonic ↔ local-files backend parity** — 🟡 client. Audited 2026-06-29 against
+  `LocalFilesClientHost` (the reference). **Already at parity:** D7 continuous playback
+  (`build_continuation_queue` in both), hidden-mode now-playing masking (`feat/subsonic-hidden-parity`,
+  just shipped — masks title/artist/art + stashes `raw_*` so the D5 peek works), `get_settings_ui`,
+  cover art (different-but-valid: server `getCoverArt` vs local extraction). **Gaps in Subsonic
+  (`subsonic_backend.py`):**
+  - **(correctness, highest) Ownership auto-skip MISSING** — `_play_track_internal` has no
+    owned-album gate, so unowned tracks play *and* `on_playback_finished` marks them finished /
+    releases checks (local skips them at L1298-1304 + guards completion). Lets you progress on albums
+    you haven't unlocked. Fix first regardless of trap work.
+  - **Entire Shuffle Trap subsystem (A1) MISSING** — no `on_trap_received`/`_start_shuffle_trap`/
+    `_end_shuffle_trap`/`_cancel_shuffle_trap`/`_resolve_trap_tracks`/`_shuffle_trap_count` nor the
+    `_trap_playing`/`_trap_saved`/`_trap_pending` state. A trap received while on Subsonic falls
+    through to the reference modal (no force-replay), and user-play entry points don't cancel a trap.
+  - **Hidden-mode "Reveal" menu item MISSING** in `on_menu_action` (UX detail; the per-row Reveal
+    button / D5 hotkey still work).
 - **D3.** Settings UI + config module: window size, volume default, AP timeout, audio backend. — 🟡 client
 - **D4.** Friendlier error messages (wrap low-level exceptions with context). — 🟢 all
 - **D5. ✅ DONE** — Reveal hotkey (`feat/d5-reveal-hotkey`, off `dev`, merged `--no-ff`):
