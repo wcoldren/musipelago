@@ -5,7 +5,13 @@ re-fire when the server replays the item backlog (reconnect) or the app restarts
 ``received_items`` from scratch. The pure function is tested here without importing the
 VLC-backed client (mirrors the guess-matcher extraction)."""
 
-from musipelago.utils_client import count_pending_traps
+import random
+
+from musipelago.utils_client import (
+    count_pending_traps,
+    eligible_shuffle_tracks,
+    pick_shuffle_tracks,
+)
 
 TRAP = "Bad Track Trap"
 ID_MAP = {5: TRAP, 7: "[Bandit] [alb1]", 9: "Album finished!", 6: "Scratched disc"}
@@ -60,3 +66,51 @@ def test_empty_inbox():
 def test_cursor_ahead_never_negative():
     # Defensive: a stale cursor larger than seen must not return a negative delta.
     assert count_pending_traps(_items(5), ID_MAP, TRAP_NAMES, 5) == 0
+
+
+# --- Shuffle Trap selection (the flagship effect picks from already-played, owned tracks) ---
+def _prog(*entries):
+    """Build a track_progress dict: each entry is (uri, is_finished, parent_uri)."""
+    return {uri: {"is_finished": fin, "parent_uri": parent} for uri, fin, parent in entries}
+
+
+def test_eligible_only_finished_and_owned():
+    prog = _prog(
+        ("t1", True, "albA"),  # finished + owned -> eligible
+        ("t2", False, "albA"),  # not finished -> out
+        ("t3", True, "albB"),  # finished but album not owned -> out
+        ("t4", True, "albA"),  # finished + owned -> eligible
+    )
+    owned = {"albA"}
+    assert set(eligible_shuffle_tracks(prog, owned)) == {"t1", "t4"}
+
+
+def test_eligible_empty_when_nothing_finished():
+    prog = _prog(("t1", False, "albA"), ("t2", False, "albA"))
+    assert eligible_shuffle_tracks(prog, {"albA"}) == []
+
+
+def test_pick_count_is_min_of_n_and_pool():
+    pool = ["a", "b", "c"]
+    assert len(pick_shuffle_tracks(pool, 2, random.Random(0))) == 2
+    assert len(pick_shuffle_tracks(pool, 10, random.Random(0))) == 3  # capped at pool size
+
+
+def test_pick_distinct_and_from_pool():
+    pool = ["a", "b", "c", "d"]
+    got = pick_shuffle_tracks(pool, 3, random.Random(1))
+    assert len(got) == len(set(got)) == 3
+    assert set(got) <= set(pool)
+
+
+def test_pick_deterministic_under_seed():
+    pool = ["a", "b", "c", "d", "e"]
+    assert pick_shuffle_tracks(pool, 3, random.Random(42)) == pick_shuffle_tracks(
+        pool, 3, random.Random(42)
+    )
+
+
+def test_pick_empty_or_nonpositive():
+    assert pick_shuffle_tracks([], 3, random.Random(0)) == []
+    assert pick_shuffle_tracks(["a", "b"], 0, random.Random(0)) == []
+    assert pick_shuffle_tracks(["a", "b"], -1, random.Random(0)) == []

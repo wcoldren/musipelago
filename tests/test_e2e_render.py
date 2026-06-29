@@ -121,6 +121,22 @@ def test_trap_item_and_slotdata_rendered(rendered):
     assert "EnableTraps:" in opts and "TrapPercentage:" in opts
 
 
+def test_shuffle_trap_item_rendered(rendered):
+    """The flagship Shuffle Trap is baked into trap_items/trap_weights with trap
+    classification and a unique id; fill_slot_data emits all trap names from trap_items."""
+    texts, _ = rendered
+    items = texts["Items.py.j2"]
+
+    # Shuffle Trap present with trap classification.
+    assert re.search(r'"Shuffle Trap":\s*ItemData\(\d+,\s*ItemClassification\.trap', items)
+    # Weighted in trap_weights alongside the reference trap.
+    assert re.search(r'"Shuffle Trap":\s*\d+', items)
+
+    # Every trap item id is unique (no collision between Bad Track / Shuffle).
+    trap_ids = re.findall(r'"[^"]+ Trap":\s*ItemData\((\d+),\s*ItemClassification\.trap', items)
+    assert len(trap_ids) >= 2 and len(trap_ids) == len(set(trap_ids))
+
+
 def test_subset_shrinks_rendered_location_count(tmp_path):
     """A5: a `subset=K` build must bake exactly K AP locations into the rendered
     world — proving the check-count knob really shrinks the location pool."""
