@@ -630,6 +630,7 @@ class SubsonicClientHost(AbstractClientHost):
         self.current_playing_track_uri = uri
         self.current_playing_track_title = title
         self.is_playing = True
+        self.root_layout.update_now_playing_highlight()  # blue-highlight the active row
 
         Clock.schedule_once(lambda dt: self.start_polling(), 0.5)
 
