@@ -1314,24 +1314,25 @@ class LocalFilesClientHost(AbstractClientHost):
         if self.playback_info_widget:
             is_finished = bool(prog and prog.get("is_finished"))
             hidden = getattr(self.app, "hidden_metadata", False) and not is_finished
+            parent_album = self.app.album_data_cache.get(parent)
+            real_title = title
+            real_artist_album = f"{track_obj.artist} - {track_obj.album_title}"
+            real_art = (parent_album.image_url if parent_album else None) or KIVY_ICON
+            # Always stash the real values so the D5 peek can reveal the now-playing bar even
+            # while hidden mode shows placeholders.
+            self.playback_info_widget.raw_title = real_title
+            self.playback_info_widget.raw_artist_album = real_artist_album
+            self.playback_info_widget.raw_art_source = real_art
+            # In hidden mode the currently-playing (not-yet-finished) track is the one you're
+            # trying to recognize, so mask its title/artist/cover in the now-playing bar too.
             if hidden:
                 self.playback_info_widget.track_title = "Unknown Track"
                 self.playback_info_widget.artist_album = "Unknown Artist"
-            else:
-                self.playback_info_widget.track_title = title
-                self.playback_info_widget.artist_album = (
-                    f"{track_obj.artist} - {track_obj.album_title}"
-                )
-            # For local files, we need to find the album art again or pass it down.
-            # For now, let's try to grab it from the parent album in cache. In hidden mode the
-            # cover would give the answer away, so mask it too until the track is finished.
-            parent_album = self.app.album_data_cache.get(parent)
-            if hidden:
                 self.playback_info_widget.art_source = KIVY_ICON
-            elif parent_album:
-                self.playback_info_widget.art_source = parent_album.image_url
             else:
-                self.playback_info_widget.art_source = KIVY_ICON
+                self.playback_info_widget.track_title = real_title
+                self.playback_info_widget.artist_album = real_artist_album
+                self.playback_info_widget.art_source = real_art
 
             self.playback_info_widget.progress_value = 0
             self.playback_info_widget.current_time = "00:00"

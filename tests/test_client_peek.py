@@ -42,7 +42,19 @@ def _masked_row(uri="t1"):
     }
 
 
-def _make_root(monkeypatch, rows, playing_uri):
+class _NowPlaying:
+    """Stand-in for GenericPlaybackInfo: real values stashed in raw_*, display in the rest."""
+
+    def __init__(self):
+        self.track_title = "Unknown Track"
+        self.artist_album = "Unknown Artist"
+        self.art_source = KIVY_ICON
+        self.raw_title = "Paranoid Android"
+        self.raw_artist_album = "Radiohead - OK Computer"
+        self.raw_art_source = "/cache/real.jpg"
+
+
+def _make_root(monkeypatch, rows, playing_uri, widget=None):
     """Stub RootLayout with the real peek methods bound and a fake app/ids/track_rv."""
     rv = _RV(rows)
     root = types.SimpleNamespace(
@@ -51,11 +63,13 @@ def _make_root(monkeypatch, rows, playing_uri):
         ),
         toasts=[],
     )
-    host = types.SimpleNamespace(current_playing_track_uri=playing_uri)
+    host = types.SimpleNamespace(current_playing_track_uri=playing_uri, playback_info_widget=widget)
     app = types.SimpleNamespace(client_host_ui=host, show_toast=lambda m: root.toasts.append(m))
     monkeypatch.setattr(mc.App, "get_running_app", staticmethod(lambda: app))
     root.peek_playing_track = types.MethodType(mc.RootLayout.peek_playing_track, root)
     root._unmask_track_row = mc.RootLayout._unmask_track_row  # staticmethod
+    root._reveal_now_playing = mc.RootLayout._reveal_now_playing  # staticmethod
+    root._mask_now_playing = mc.RootLayout._mask_now_playing  # staticmethod
     root._rv = rv
     return root
 
@@ -87,6 +101,28 @@ def test_peek_toggles_back_to_hidden_on_second_press(monkeypatch):
     assert "_peeked" not in row
     assert root._rv.refreshed == 2
     assert any("hidden again" in t.lower() for t in root.toasts)
+
+
+def test_peek_also_reveals_and_rehides_now_playing_bar(monkeypatch):
+    row = _masked_row("t1")
+    npw = _NowPlaying()
+    root = _make_root(monkeypatch, [row], playing_uri="t1", widget=npw)
+    root.peek_playing_track()  # reveal
+    assert npw.track_title == "Paranoid Android"
+    assert npw.artist_album == "Radiohead - OK Computer"
+    assert npw.art_source == "/cache/real.jpg"
+    root.peek_playing_track()  # re-hide
+    assert npw.track_title == "Unknown Track"
+    assert npw.artist_album == "Unknown Artist"
+    assert npw.art_source == KIVY_ICON
+
+
+def test_peek_tolerates_missing_now_playing_widget(monkeypatch):
+    # No playback widget on the host -> peek still toggles the row without raising.
+    row = _masked_row("t1")
+    root = _make_root(monkeypatch, [row], playing_uri="t1", widget=None)
+    root.peek_playing_track()
+    assert row["text_line_1"] == "Paranoid Android"
 
 
 def test_peek_skips_a_properly_revealed_row(monkeypatch):

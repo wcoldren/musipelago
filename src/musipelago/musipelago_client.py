@@ -1157,16 +1157,42 @@ class RootLayout(BoxLayout):
             if track_data.get("raw_uri") == uri:
                 if track_data.get("_peeked"):
                     peek_rehide_row(track_data)
+                    self._mask_now_playing(host)
                     track_rv.refresh_from_data()
                     app.show_toast("Hidden again.")
                 elif track_data.get("can_reveal"):  # still masked -> reveal as a peek
                     peek_reveal_row(track_data)
+                    self._reveal_now_playing(host)
                     track_rv.refresh_from_data()
                     app.show_toast("Revealed the playing track (peek).")
                 else:
                     app.show_toast("Track is already revealed.")
                 return
         app.show_toast("Playing track isn't in this list.")
+
+    @staticmethod
+    def _reveal_now_playing(host):
+        """Show the now-playing bar's real title/artist/cover (D5 peek), from the values the
+        backend stashed on the widget."""
+        w = getattr(host, "playback_info_widget", None)
+        if not w:
+            return
+        if getattr(w, "raw_title", ""):
+            w.track_title = w.raw_title
+        if getattr(w, "raw_artist_album", ""):
+            w.artist_album = w.raw_artist_album
+        if getattr(w, "raw_art_source", ""):
+            w.art_source = w.raw_art_source
+
+    @staticmethod
+    def _mask_now_playing(host):
+        """Re-mask the now-playing bar (D5 peek toggled off) back to hidden placeholders."""
+        w = getattr(host, "playback_info_widget", None)
+        if not w:
+            return
+        w.track_title = "Unknown Track"
+        w.artist_album = "Unknown Artist"
+        w.art_source = KIVY_ICON
 
     def complete_track(self, track_uri):
         """Mark a track finished, award its AP location check, and update the UI.

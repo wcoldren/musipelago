@@ -36,6 +36,11 @@ class GenericPlaybackInfo(BoxLayout):
     total_time = StringProperty("00:00")
     progress_value = NumericProperty(0)
     art_source = StringProperty(KIVY_ICON)
+    # Real (unmasked) now-playing values, kept even while hidden mode masks the displayed ones,
+    # so the D5 peek can reveal the now-playing bar and toggle it back.
+    raw_title = StringProperty("")
+    raw_artist_album = StringProperty("")
+    raw_art_source = StringProperty("")
 
 
 class ToastMessage(Label):
