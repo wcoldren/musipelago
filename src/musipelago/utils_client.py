@@ -129,6 +129,71 @@ def pick_shuffle_tracks(pool, n, rng):
     return rng.sample(list(pool), min(n, len(pool)))
 
 
+# --- Message log / chat console (B4; pure helpers for the client's feed) ---
+def compose_printjson_text(data_parts, resolve):
+    """Compose one display string from an AP ``PrintJSON`` packet's ``data`` parts.
+
+    Each part is a dict whose ``type`` selects rendering:
+      - ``player_id`` / ``item_id`` / ``location_id`` -> ``resolve(part_type, text, part)``
+        (the client delegates to ``get_ap_info`` for the id->name lookup)
+      - anything else (or no type) -> the raw ``text``
+    Any exception from ``resolve`` falls back to the raw ``text`` — matching the original
+    inline behavior exactly. Non-dict parts are skipped. Pure (no Kivy) so it tests
+    headlessly."""
+    message_text = ""
+    for part in data_parts:
+        if not isinstance(part, dict):
+            continue
+        text = part.get("text", "")
+        part_type = part.get("type")
+        try:
+            if part_type in ("player_id", "item_id", "location_id"):
+                message_text += resolve(part_type, text, part)
+            else:
+                message_text += text
+        except Exception:
+            message_text += text
+    return message_text
+
+
+# AP PrintJSON packet "type" -> feed "kind" (drives the row text color). Unlisted/None
+# types (plain server text) fall through to "server".
+_PRINTJSON_KIND = {
+    "ItemSend": "item",
+    "ItemCheat": "item",
+    "Hint": "hint",
+    "Chat": "chat",
+    "ServerChat": "chat",
+    "Join": "join",
+    "Part": "join",
+    "TagsChanged": "join",
+    "Goal": "goal",
+    "Release": "goal",
+    "Collect": "goal",
+}
+
+
+def printjson_kind(packet_type):
+    """Map an AP ``PrintJSON`` packet ``type`` to a feed ``kind`` for color coding."""
+    return _PRINTJSON_KIND.get(packet_type, "server")
+
+
+def make_log_entry(text, kind="server"):
+    """A RecycleView row dict for the message feed. ``kind`` (``server`` / ``item`` /
+    ``hint`` / ``chat`` / ``join`` / ``goal``) drives the row's text color."""
+    return {"text": text, "kind": kind}
+
+
+def append_capped(entries, entry, cap=200):
+    """Append ``entry`` to ``entries`` in place, trimming oldest so it never exceeds
+    ``cap`` rows — keeps a long session's feed from growing unbounded. Returns
+    ``entries``. Mutating in place keeps Kivy's ``ListProperty`` binding live."""
+    entries.append(entry)
+    if cap is not None and len(entries) > cap:
+        del entries[: len(entries) - cap]
+    return entries
+
+
 # --- Hidden-mode row reveal (pure; used by the client's hidden/guess feature) ---
 def unmask_row(track_data):
     """Restore a masked track row's real title/artist/location line and cover art in place.
