@@ -187,6 +187,22 @@ class GenericAudioPlayer:
             return max(0.0, self.player.get_position())
         return 0.0
 
+    def set_position(self, seconds):
+        """
+        Seek to an absolute position in SECONDS, clamped to [0, duration].
+        Used by the Seek Trap. VLC's set_time takes milliseconds.
+        """
+        if not self.player:
+            return
+        target = max(0.0, seconds)
+        dur = self.get_duration()
+        if dur > 0:
+            target = min(target, dur)
+        try:
+            self.player.set_time(int(target * 1000))
+        except Exception as e:
+            Logger.error(f"AudioPlayer: Seek failed: {e}")
+
     def _on_end_reached(self, event):
         if self.on_finish_callback:
             Clock.schedule_once(lambda dt: self.on_finish_callback(), 0)

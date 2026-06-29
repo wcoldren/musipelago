@@ -54,6 +54,7 @@ from musipelago.utils_client import (
     build_continuation_queue,
     eligible_shuffle_tracks,
     pick_shuffle_tracks,
+    seek_trap_target,
 )
 
 
@@ -1147,6 +1148,13 @@ class LocalFilesClientHost(AbstractClientHost):
         except (TypeError, ValueError):
             return 1
 
+    def _seek_trap_seconds(self):
+        """Seek Trap jump magnitude in seconds (client setting, default 15, clamped 5-60)."""
+        try:
+            return max(5, min(60, int(getattr(self.app, "seek_trap_seconds", 15))))
+        except (TypeError, ValueError):
+            return 15
+
     def _resolve_trap_tracks(self, uris):
         """Map already-played track URIs to their real GenericTrack objects (correct
         title/artist) from the album cache, so the now-playing bar isn't blanked."""
@@ -1163,11 +1171,13 @@ class LocalFilesClientHost(AbstractClientHost):
         return tracks
 
     def on_trap_received(self, name: str) -> bool:
-        """Shuffle Trap: force-replay N tracks the player has already finished, then resume.
+        """Route a received trap to its effect.
 
         Returns True when this host consumes the trap (the app then skips the reference
-        modal). Only "Shuffle Trap" is handled. An empty already-played pool returns False so
-        the generic modal still gives feedback — never a silent no-op, never a softlock."""
+        modal). Each effect falls back to False on an empty/edge pool so the generic modal
+        still gives feedback — never a silent no-op, never a softlock."""
+        if name == "Seek Trap":
+            return self._seek_trap()
         if name != "Shuffle Trap":
             return False
 
@@ -1247,6 +1257,32 @@ class LocalFilesClientHost(AbstractClientHost):
         self._trap_playing = False
         self._trap_saved = None
         self._trap_pending = 0
+
+    # --- Seek Trap (yank the live playhead) ---
+    def _seek_trap(self) -> bool:
+        """Seek Trap: yank the current track's playhead back or forward by N seconds.
+
+        Instantaneous (no save/restore queue needed — unlike the Shuffle Trap it doesn't take
+        playback over for a duration). Direction is a random coin-flip each fire. The forward
+        clamp (in seek_trap_target) keeps the tail playing so the track still finishes naturally
+        and releases its AP check. Returns False with nothing playing so the reference modal
+        still fires — never a silent no-op, never a softlock. Volume left untouched (ROADMAP A1)."""
+        if not self.is_playing or not self.current_playing_track_uri:
+            return False
+        player = self.app.audio_player
+        if not player:
+            return False
+
+        pos = player.get_position()
+        dur = player.get_duration()
+        sign = random.Random().choice((-1, 1))
+        delta = sign * self._seek_trap_seconds()
+        target = seek_trap_target(pos, dur, delta)
+        player.set_position(target)
+
+        arrow = "⏪" if sign < 0 else "⏩"  # rewind / fast-forward
+        self.app.show_toast(f"{arrow} Seek Trap! Jumped {abs(delta)}s.")
+        return True
 
     def on_playback_finished(self):
         Logger.info("LocalFiles: Track finished naturally.")

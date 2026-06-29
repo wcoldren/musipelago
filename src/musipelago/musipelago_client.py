@@ -839,6 +839,38 @@ class RootLayout(BoxLayout):
             )
         )
 
+        # App-level: Seek Trap intensity — how many seconds a Seek Trap yanks the playhead
+        # (back or forward, chosen randomly). Small integer field (clamped 5–60), persisted.
+        seek_row = BoxLayout(
+            orientation="horizontal", size_hint_y=None, height="48dp", spacing="8dp"
+        )
+        seek_row.add_widget(
+            Label(text="Seek Trap: seconds to jump", halign="left", valign="middle")
+        )
+        seek_input = TextInput(
+            text=str(app.seek_trap_seconds),
+            input_filter="int",
+            multiline=False,
+            size_hint_x=None,
+            width="60dp",
+        )
+
+        def _on_seek_seconds(widget, value):
+            self.set_seek_trap_seconds(value)
+
+        seek_input.bind(text=_on_seek_seconds)
+        seek_row.add_widget(seek_input)
+        panel.add_widget(seek_row)
+        panel.add_widget(
+            Label(
+                text="When a Seek Trap hits, it yanks the current track's playhead this many seconds back or forward.",
+                size_hint_y=None,
+                height="30dp",
+                halign="left",
+                valign="middle",
+            )
+        )
+
         # App-level: theme (B2) — swap the client's color palette live.
         theme_btn = ToggleButton(
             text=f"Theme: {'Light' if app.theme_name == 'light' else 'Dark'}",
@@ -918,6 +950,21 @@ class RootLayout(BoxLayout):
         if n == app.shuffle_trap_count:
             return
         app.shuffle_trap_count = n
+        app._save_client_settings()
+
+    def set_seek_trap_seconds(self, value):
+        """Set how many seconds a Seek Trap jumps the playhead (clamped 5–60), persist it.
+
+        Tolerant of an empty/garbage field mid-edit (keeps the prior value, no save)."""
+        app = App.get_running_app()
+        try:
+            n = int(str(value).strip())
+        except (TypeError, ValueError):
+            return
+        n = max(5, min(60, n))
+        if n == app.seek_trap_seconds:
+            return
+        app.seek_trap_seconds = n
         app._save_client_settings()
 
     # --- UI-Only Methods (Remain in RootLayout) ---
@@ -1909,6 +1956,7 @@ class MusipelagoClientApp(App):
         self.hidden_metadata = False  # "unknown song" practice mode (client-side toggle)
         self.guess_mode = False  # earn a track's check by correctly naming it (client-side toggle)
         self.shuffle_trap_count = 1  # how many already-played tracks a Shuffle Trap replays
+        self.seek_trap_seconds = 15  # how many seconds a Seek Trap yanks the playhead
         self.log_panel_open = True  # B4 message-log panel visibility (client-side toggle)
         self.traps_enabled = False  # set from slot_data on connect
         self._trap_modal_queue = []  # pending trap effects, shown one at a time
@@ -1954,6 +2002,7 @@ class MusipelagoClientApp(App):
                 self.hidden_metadata = bool(cs.get("hidden_metadata", False))
                 self.guess_mode = bool(cs.get("guess_mode", False))
                 self.shuffle_trap_count = max(1, int(cs.get("shuffle_trap_count", 1)))
+                self.seek_trap_seconds = max(5, min(60, int(cs.get("seek_trap_seconds", 15))))
                 self.log_panel_open = bool(cs.get("log_panel_open", True))
                 self.theme_name = str(cs.get("theme_name", "dark"))
         except Exception as e:
@@ -2319,6 +2368,7 @@ class MusipelagoClientApp(App):
                 hidden_metadata=bool(self.hidden_metadata),
                 guess_mode=bool(self.guess_mode),
                 shuffle_trap_count=int(self.shuffle_trap_count),
+                seek_trap_seconds=int(self.seek_trap_seconds),
                 log_panel_open=bool(self.log_panel_open),
                 theme_name=str(self.theme_name),
             )
