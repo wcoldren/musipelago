@@ -207,8 +207,12 @@ variants with no code changes.
   `musipelagoclient.kv` to `app.col_*` (backgrounds → `col_bg`/`col_surface`, secondary text →
   `col_text_dim`), and added a Dark/Light toggle to the client Settings popup. Semantic state colors
   (finished-green / hint-amber) left literal. 4 headless `apply_theme` tests (`test_client_theme.py`).
-  Manual visual GUI check still pending. (Future polish: a `Window.clearcolor` so the light theme's
-  window backdrop also lightens, and themeing the rounded-card geometry like the gen app.)
+  **Light-mode follow-up done** (`fix/light-mode-text`, merged): wired the previously-white Labels
+  (status bars, AP line, Messages header, now-playing title + timer, row title white-fallback + line 2)
+  to `col_text`/`col_text_dim`, and coupled `Window.clearcolor` to the palette so the window backdrop
+  lightens too. **Visually verified by the user (2026-06-29)** against the Traps-2 seed. (Remaining
+  polish: the chat log's per-part AP markup colors are still tuned for dark; themeing rounded-card
+  geometry like the gen app.)
 - **Blank-pane regression fix** (`fix/gen-blank-panes`, off `dev`): the refresh wrapped each
   `RecycleView` in a `FloatLayout` for the empty-state overlay but gave them no `pos_hint`, so the
   lists were positioned at the window origin and panes looked blank (rows + buttons invisible, scan
