@@ -53,6 +53,7 @@ from musipelago.utils import (
 from musipelago.utils_client import (
     build_continuation_queue,
     eligible_shuffle_tracks,
+    eligible_skip_tracks,
     pick_shuffle_tracks,
     seek_trap_target,
 )
@@ -1282,6 +1283,50 @@ class LocalFilesClientHost(AbstractClientHost):
 
         arrow = "⏪" if sign < 0 else "⏩"  # rewind / fast-forward
         self.app.show_toast(f"{arrow} Seek Trap! Jumped {abs(delta)}s.")
+        return True
+
+    # --- Boons (A8; positive counterpart to traps) ---
+    def on_boon_received(self, name: str) -> bool:
+        """Route a received boon to its effect.
+
+        Returns True when this host consumes the boon (the app then skips the acknowledgement
+        modal). Each effect is additive and falls back to False on an empty/edge pool so the
+        modal still gives feedback — never a silent no-op, never a block."""
+        if name == "Skip Token":
+            return self._skip_token()
+        if name == "Reveal Token":
+            return self._reveal_token()
+        return False
+
+    def _skip_token(self) -> bool:
+        """Skip Token: auto-complete one owned, not-yet-finished track — releases its AP check
+        via the shared complete_track path (purely additive). Prefers the currently-playing
+        track, else a random eligible one. Empty pool (all owned tracks finished) -> False."""
+        pool = eligible_skip_tracks(self.app.track_progress, self.app.owned_albums)
+        if not pool:
+            return False
+        uri = self.current_playing_track_uri if self.current_playing_track_uri in pool else None
+        if uri is None:
+            uri = pick_shuffle_tracks(pool, 1, random.Random())[0]
+        self.root_layout.complete_track(uri)
+        self.app.show_toast("\U0001f381 Skip Token — released a track's check!")
+        return True
+
+    def _reveal_token(self) -> bool:
+        """Reveal Token: permanently unmask the currently-playing track's hidden metadata
+        (A3 synergy) WITHOUT releasing its check. Only meaningful in hidden mode with a masked
+        track playing; otherwise -> False so the modal still gives feedback."""
+        if not getattr(self.app, "hidden_metadata", False):
+            return False  # nothing is masked to reveal
+        uri = self.current_playing_track_uri
+        if not uri:
+            return False
+        prog = self.app.track_progress.get(uri) or {}
+        if prog.get("is_finished"):
+            return False  # already revealed (finished tracks always show real metadata)
+        if not self.root_layout.reveal_track_metadata(uri):
+            return False  # track not in the displayed list -> nothing visibly revealed
+        self.app.show_toast("\U0001f381 Reveal Token — the playing track is now shown!")
         return True
 
     def on_playback_finished(self):

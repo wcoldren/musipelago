@@ -75,9 +75,11 @@ def create_multiple_items(world: "MusipelagoWorld", name: str, count: int,
 
     return itemlist
 
-# Finally, where junk + trap items are created to fill the leftover locations.
-# `count` is the whole filler budget; if traps are enabled we carve out a share
-# of it (TrapPercentage) for traps and fill the rest with junk.
+# Finally, where junk + trap + boon items are created to fill the leftover
+# locations. `count` is the whole filler budget; if traps/boons are enabled we
+# carve out shares of it (TrapPercentage / BoonPercentage) and fill the rest
+# with junk. The shares come out of the same budget so the pool total never
+# drifts (keeps create_itempool's location math intact).
 def create_junk_items(world: "MusipelagoWorld", count: int) -> List[Item]:
     pool: List[Item] = []
 
@@ -86,7 +88,16 @@ def create_junk_items(world: "MusipelagoWorld", count: int) -> List[Item]:
     if getattr(world.options, "EnableTraps", None) and world.options.EnableTraps and trap_weights:
         pct = int(world.options.TrapPercentage.value)
         trap_count = round(count * pct / 100)
-    junk_count = count - trap_count
+
+    # How many of the remaining slots should be boons. Clamp so traps + boons
+    # never exceed the whole budget (junk_count stays >= 0).
+    boon_count = 0
+    if getattr(world.options, "EnableBoons", None) and world.options.EnableBoons and boon_weights:
+        pct = int(world.options.BoonPercentage.value)
+        boon_count = round(count * pct / 100)
+    boon_count = min(boon_count, max(0, count - trap_count))
+
+    junk_count = max(0, count - trap_count - boon_count)
 
     # Junk slots: weighted random pick from the filler items.
     if junk_count > 0 and junk_weights:
@@ -100,6 +111,13 @@ def create_junk_items(world: "MusipelagoWorld", count: int) -> List[Item]:
         names = list(trap_weights.keys())
         weights = [trap_weights[n] for n in names]
         for i in range(trap_count):
+            pool.append(world.create_item(world.random.choices(names, weights=weights, k=1)[0]))
+
+    # Boon slots: weighted random pick from the boon items.
+    if boon_count > 0 and boon_weights:
+        names = list(boon_weights.keys())
+        weights = [boon_weights[n] for n in names]
+        for i in range(boon_count):
             pool.append(world.create_item(world.random.choices(names, weights=weights, k=1)[0]))
 
     return pool
@@ -163,11 +181,28 @@ trap_weights = {
     "Seek Trap": 3,
 }
 
+# Boons are the positive counterpart to traps (A8). Like traps they live in
+# their own dict so create_junk_items can carve a fraction of the filler budget
+# into them (see BoonPercentage). The client learns which received items are
+# boons from slot_data["boons"]["names"], so these names must match what
+# fill_slot_data sends. Classified `useful`: helpful but not required to win.
+boon_items = {
+    "Reveal Token": ItemData(2006001, ItemClassification.useful, 0),
+    "Skip Token": ItemData(2006002, ItemClassification.useful, 0),
+}
+
+# Same idea as trap_weights, but for the boon pool.
+boon_weights = {
+    "Reveal Token": 1,
+    "Skip Token": 1,
+}
+
 # This makes a really convenient list of all the other dictionaries
 # (fun fact: {} is a dictionary)
 item_table = {
     **ap_skeleton_items,
     **ap_skeleton_chapters,
     **junk_items,
-    **trap_items
+    **trap_items,
+    **boon_items
 }

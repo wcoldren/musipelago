@@ -1169,7 +1169,17 @@ class RootLayout(BoxLayout):
             self.complete_track(track_uri)  # gave up, but release the check so nobody is blocked
             app.show_toast("Revealed — check released (gave up).")
             return
-        track_rv = self.ids.list_container.ids.track_rv
+        self.reveal_track_metadata(track_uri)
+
+    def reveal_track_metadata(self, track_uri):
+        """Permanently unmask a displayed track row WITHOUT releasing its check or ending a
+        guess (unlike ``reveal_track``'s guess-mode give-up). Used by the Reveal Token boon and
+        by ``reveal_track``'s plain-hidden-mode path. Returns True if a displayed row was
+        revealed, False if the track isn't in the current list (or no list exists)."""
+        try:
+            track_rv = self.ids.list_container.ids.track_rv
+        except Exception:
+            return False
         for track_data in track_rv.data:
             if track_data["raw_uri"] == track_uri:
                 self._unmask_track_row(track_data)
@@ -1177,7 +1187,8 @@ class RootLayout(BoxLayout):
                 track_data["can_reveal"] = False  # collapse the per-row Reveal button
                 track_data["can_guess"] = False  # giving up ends guessing for this row
                 track_rv.refresh_from_data()
-                break
+                return True
+        return False
 
     def _on_global_key(self, window, key, scancode, codepoint, modifier):
         """D5 global hotkey: Cmd/Ctrl+R peeks the currently-playing track. Returns True to
@@ -1374,6 +1385,10 @@ class ArchipelagoClient:
         self.trap_names = set()
         self._trap_key = None
         self._traps_fired = 0
+        # Boon dispatch state — the positive counterpart to traps, same once-only mechanism.
+        self.boon_names = set()
+        self._boon_key = None
+        self._boons_fired = 0
         self.victory_reported = False
 
     def start_client_loop(self):
@@ -1472,6 +1487,7 @@ class ArchipelagoClient:
                         )
 
         self._dispatch_pending_traps()
+        self._dispatch_pending_boons()
         self.check_victory()
 
     def _load_trap_state(self, slot_data):
@@ -1534,6 +1550,63 @@ class ArchipelagoClient:
         for name in new_traps:
             Logger.info(f"AP: Trap received: {name}")
             Clock.schedule_once(lambda dt, n=name: self.app.trigger_trap(n))
+
+    def _load_boon_state(self, slot_data):
+        """Read boon config from slot_data and load the persisted once-only cursor.
+
+        The boon counterpart to _load_trap_state: keyed by Seed+Slot so a replayed backlog
+        (reconnect/restart) never re-fires already-handled boons."""
+        boons = slot_data.get("boons", {}) or {}
+        self.boon_names = set(boons.get("names", []))
+        self.app.boons_enabled = bool(boons.get("enabled", False))
+
+        seed = slot_data.get("Seed", "?")
+        slot = slot_data.get("Slot", self.slot_id)
+        self._boon_key = f"boon_cursor::{seed}::{slot}"
+        self._boons_fired = 0
+        try:
+            store = getattr(self.app, "store", None)
+            if store is not None and store.exists(self._boon_key):
+                self._boons_fired = int(store.get(self._boon_key).get("count", 0))
+        except Exception as e:
+            Logger.warning(f"AP: Could not load boon cursor: {e}")
+        Logger.info(
+            f"AP: Boons {'enabled' if self.app.boons_enabled else 'disabled'}; "
+            f"cursor {self._boon_key} = {self._boons_fired} fired."
+        )
+
+    def _dispatch_pending_boons(self):
+        """Fire any newly-received boons exactly once, then persist the cursor.
+
+        Reuses the generic count_pending_traps helper (it just counts received items whose name
+        is in a name-set, beyond a cursor) — passes the boon names/cursor instead."""
+        if not self.app_is_ready or not self.id_to_item_name or not self.boon_names:
+            return
+
+        pending = count_pending_traps(
+            self.received_items, self.id_to_item_name, self.boon_names, self._boons_fired
+        )
+        if pending <= 0:
+            return
+
+        boon_seq = [
+            self.id_to_item_name.get(it.get("item"))
+            for it in self.received_items
+            if self.id_to_item_name.get(it.get("item")) in self.boon_names
+        ]
+        new_boons = boon_seq[self._boons_fired :]
+
+        self._boons_fired += pending
+        try:
+            store = getattr(self.app, "store", None)
+            if store is not None and self._boon_key:
+                store.put(self._boon_key, count=self._boons_fired)
+        except Exception as e:
+            Logger.warning(f"AP: Could not persist boon cursor: {e}")
+
+        for name in new_boons:
+            Logger.info(f"AP: Boon received: {name}")
+            Clock.schedule_once(lambda dt, n=name: self.app.trigger_boon(n))
 
     def check_victory(self):
         """
@@ -1659,6 +1732,7 @@ class ArchipelagoClient:
                             options.get("AllowPlayingAnyTrack", 0)
                         )
                         self._load_trap_state(slot_data)
+                        self._load_boon_state(slot_data)
                         self.missing_locations = set(packet.get("missing_locations", []))
                         self.checked_locations = set(packet.get("checked_locations", []))
                         self.received_connected = True
@@ -1959,8 +2033,11 @@ class MusipelagoClientApp(App):
         self.seek_trap_seconds = 15  # how many seconds a Seek Trap yanks the playhead
         self.log_panel_open = True  # B4 message-log panel visibility (client-side toggle)
         self.traps_enabled = False  # set from slot_data on connect
+        self.boons_enabled = False  # set from slot_data on connect
         self._trap_modal_queue = []  # pending trap effects, shown one at a time
         self._trap_modal_open = False
+        self._boon_modal_queue = []  # pending boon fallbacks, shown one at a time
+        self._boon_modal_open = False
         self._current_track_container_uri = (
             None  # last album whose tracks are shown (for re-render)
         )
@@ -2215,6 +2292,60 @@ class MusipelagoClientApp(App):
         def _on_dismiss(*_a):
             self._trap_modal_open = False
             self._show_next_trap_modal()  # drain the rest of the queue, one at a time
+
+        btn.bind(on_release=_dismiss)
+        popup.bind(on_dismiss=_on_dismiss)
+        popup.open()
+
+    def trigger_boon(self, name):
+        """Entry point for a received boon (called on the UI thread by the AP client).
+
+        Boon counterpart to trigger_trap: the active backend host gets first crack at a
+        positive effect (Reveal/Skip token); if it consumes the boon (returns True) no modal is
+        shown. Otherwise falls back to a dismissable acknowledgement modal, serialized
+        one-at-a-time. The once-only cursor guarantees each boon reaches here exactly once."""
+        handled = False
+        host = getattr(self, "client_host_ui", None)
+        if host is not None:
+            try:
+                handled = bool(host.on_boon_received(name))
+            except Exception as e:
+                Logger.warning(f"Boon: host.on_boon_received failed: {e}")
+
+        if not handled:
+            self._boon_modal_queue.append(name)
+            self._show_next_boon_modal()
+
+    def _show_next_boon_modal(self):
+        if self._boon_modal_open or not self._boon_modal_queue:
+            return
+        name = self._boon_modal_queue.pop(0)
+        self._boon_modal_open = True
+
+        box = BoxLayout(orientation="vertical", spacing=dp(12), padding=dp(16))
+        box.add_widget(
+            Label(
+                text=f"\U0001f381 You received a boon!\n\n[b]{name}[/b]",
+                markup=True,
+                halign="center",
+            )
+        )
+        btn = Button(text="Nice!", size_hint_y=None, height=dp(44))
+        box.add_widget(btn)
+        popup = Popup(
+            title="Boon!",
+            content=box,
+            size_hint=(0.7, None),
+            height=dp(220),
+            auto_dismiss=False,
+        )
+
+        def _dismiss(*_a):
+            popup.dismiss()
+
+        def _on_dismiss(*_a):
+            self._boon_modal_open = False
+            self._show_next_boon_modal()  # drain the rest of the queue, one at a time
 
         btn.bind(on_release=_dismiss)
         popup.bind(on_dismiss=_on_dismiss)

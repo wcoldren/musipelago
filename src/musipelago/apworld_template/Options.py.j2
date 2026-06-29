@@ -43,6 +43,26 @@ class TrapPercentage(Range):
     range_end = 100
     default = 20
 
+class EnableBoons(Toggle):
+    """
+    Put helpful "boon" items into the pool. When a boon is received the client
+    triggers a positive effect (e.g. reveal a hidden track, skip a track's
+    check). The counterpart to traps. Off by default.
+    """
+    display_name = "Enable boons"
+    default = False
+
+class BoonPercentage(Range):
+    """
+    Of the filler items in the pool, what percentage should be boons instead.
+    Only matters when boons are enabled. Shares the filler budget with traps.
+    0 = no boons, 100 = all (remaining) filler is boons.
+    """
+    display_name = "Boon percentage"
+    range_start = 0
+    range_end = 100
+    default = 10
+
 
 @dataclass
 class MusipelagoOptions(PerGameCommonOptions):
@@ -50,3 +70,5 @@ class MusipelagoOptions(PerGameCommonOptions):
     AllowPlayingAnyTrack:     AllowPlayingAnyTrack
     EnableTraps:              EnableTraps
     TrapPercentage:           TrapPercentage
+    EnableBoons:              EnableBoons
+    BoonPercentage:           BoonPercentage
