@@ -210,9 +210,15 @@ variants with no code changes.
   **Light-mode follow-up done** (`fix/light-mode-text`, merged): wired the previously-white Labels
   (status bars, AP line, Messages header, now-playing title + timer, row title white-fallback + line 2)
   to `col_text`/`col_text_dim`, and coupled `Window.clearcolor` to the palette so the window backdrop
-  lightens too. **Visually verified by the user (2026-06-29)** against the Traps-2 seed. (Remaining
-  polish: the chat log's per-part AP markup colors are still tuned for dark; themeing rounded-card
-  geometry like the gen app.)
+  lightens too. **Visually verified by the user (2026-06-29)** against the Traps-2 seed.
+  **Two more theme-polish follow-ups done (both off `dev`, merged `--no-ff`):**
+  (1) `feat/client-card-style` — client list rows are now rounded cards matching the gen app
+  (`canvas.before` `RoundedRectangle` filled `app.col_card`, inset 4dp, `radius theme.RADIUS`; added
+  `#:import theme` to the client kv). (2) `feat/chat-theme-colors` — the message-log per-part AP
+  colors are now theme-aware: added `AP_COLOR_CODES_LIGHT` (same keys, darkened) +
+  `ap_color_codes(theme_name)` in `utils_client.py`; `printjson_markup` takes a `color_codes` param
+  (defaults dark), and the PrintJSON handler passes the active theme's map. Per-theme on **new**
+  messages (pre-flip lines keep their colors — user's choice). +4 tests.
 - **Blank-pane regression fix** (`fix/gen-blank-panes`, off `dev`): the refresh wrapped each
   `RecycleView` in a `FloatLayout` for the empty-state overlay but gave them no `pos_hint`, so the
   lists were positioned at the window origin and panes looked blank (rows + buttons invisible, scan
@@ -374,8 +380,13 @@ green confirmed on first push.)
 - **D2.** Subsonic gaps: `get_playlist_with_tracks` stub + missing pagination. — 🟡 client
 - **D3.** Settings UI + config module: window size, volume default, AP timeout, audio backend. — 🟡 client
 - **D4.** Friendlier error messages (wrap low-level exceptions with context). — 🟢 all
-- **D5.** Reveal hotkey — a meta-key reveals the currently-playing track. Needs new keyboard
-  handling (`Window.bind(on_key_down=…)`); none exists in the client today. — 🟢🟡 client
+- **D5. ✅ DONE** — Reveal hotkey (`feat/d5-reveal-hotkey`, off `dev`, merged `--no-ff`):
+  `Window.bind(on_key_down=…)` in `RootLayout.__init__`; **Cmd/Ctrl+R** calls a new
+  `peek_playing_track` that unmasks the currently-playing track's row as a transient PEEK — unlike
+  `reveal_track` it never calls `complete_track`, so in guess mode it is NOT a give-up and releases
+  no check (next `populate_track_list` re-masks). Reuses `_unmask_track_row`/`unmask_row` +
+  `client_host_ui.current_playing_track_uri`. Always-on; toasts on nothing-playing / not-in-list.
+  7 headless tests (`test_client_peek.py`).
 - **D6.** App-icon polish — the current `resources/musipelago_icon.png` is a placeholder (a detailed
   AI raster with text, keyed off a baked checkerboard → mushy/haloed at icon sizes). Replace with a
   **simple, bold, flat mark** (single symbol, *no text*, limited palette, generous padding) exported
