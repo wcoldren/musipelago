@@ -309,3 +309,33 @@ def unmask_row(track_data):
         track_data["text_line_3"] = track_data["raw_line3"]
     if "raw_image_source" in track_data:
         track_data["image_source"] = track_data["raw_image_source"]
+
+
+# --- D5 reveal-hotkey peek (pure; a *toggleable, reversible* reveal of the playing track) ---
+# A peek differs from a real reveal (finish / Reveal button) in that it must snap back to hidden.
+# We stash the masked display under ``_peek_masked`` and flag ``_peeked`` so only peeked rows are
+# ever re-hidden — a properly-revealed row drops these markers via ``clear_peek_state``.
+_PEEK_MASKED_KEYS = ("text_line_1", "text_line_3", "text_line_4", "image_source")
+
+
+def peek_reveal_row(track_data):
+    """Temporarily reveal a masked row: stash its masked display, mark it peeked, then unmask.
+    Pure dict transform (no Kivy) so it tests headlessly."""
+    track_data["_peek_masked"] = {k: track_data.get(k) for k in _PEEK_MASKED_KEYS}
+    track_data["_peeked"] = True
+    unmask_row(track_data)
+
+
+def peek_rehide_row(track_data):
+    """Undo a peek: restore the stashed masked display and drop the peek markers. Pure."""
+    masked = track_data.pop("_peek_masked", None)
+    track_data.pop("_peeked", None)
+    if masked:
+        track_data.update(masked)
+
+
+def clear_peek_state(track_data):
+    """Drop the peek markers WITHOUT re-masking. Called when a row is *properly* revealed
+    (finished / Reveal) so a later peek-toggle can never re-hide a genuinely-revealed row. Pure."""
+    track_data.pop("_peek_masked", None)
+    track_data.pop("_peeked", None)
