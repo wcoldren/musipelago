@@ -623,6 +623,8 @@ class RootLayout(BoxLayout):
         # Reflect the persisted message-panel visibility (loaded into the App on build).
         self.log_panel_open = bool(getattr(App.get_running_app(), "log_panel_open", True))
         self.set_status(self._status_text_internal)
+        # D5: Cmd/Ctrl+R peeks the currently-playing track's hidden metadata.
+        Window.bind(on_key_down=self._on_global_key)
 
     def set_status(self, text):
         self._status_text_internal = text
@@ -1125,6 +1127,34 @@ class RootLayout(BoxLayout):
                 track_data["can_guess"] = False  # giving up ends guessing for this row
                 track_rv.refresh_from_data()
                 break
+
+    def _on_global_key(self, window, key, scancode, codepoint, modifier):
+        """D5 global hotkey: Cmd/Ctrl+R peeks the currently-playing track. Returns True to
+        consume the key, False to pass it through (so normal typing is unaffected)."""
+        if codepoint == "r" and ({"meta", "cmd", "ctrl"} & set(modifier or [])):
+            self.peek_playing_track()
+            return True
+        return False
+
+    def peek_playing_track(self):
+        """Reveal the currently-playing track's hidden metadata as a transient *peek* — unlike
+        ``reveal_track`` this never calls ``complete_track``, so in guess mode it is NOT a
+        give-up and releases no AP check. The unmask isn't persisted: the next
+        ``populate_track_list`` re-masks it (per ``hidden = hidden_metadata and not finished``)."""
+        app = App.get_running_app()
+        host = getattr(app, "client_host_ui", None)
+        uri = getattr(host, "current_playing_track_uri", None) if host else None
+        if not uri:
+            app.show_toast("Nothing is playing.")
+            return
+        track_rv = self.ids.list_container.ids.track_rv
+        for track_data in track_rv.data:
+            if track_data.get("raw_uri") == uri:
+                self._unmask_track_row(track_data)  # peek only — no can_reveal/can_guess flip
+                track_rv.refresh_from_data()
+                app.show_toast("Revealed the playing track (peek).")
+                return
+        app.show_toast("Playing track isn't in this list.")
 
     def complete_track(self, track_uri):
         """Mark a track finished, award its AP location check, and update the UI.
