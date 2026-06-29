@@ -129,6 +129,22 @@ def pick_shuffle_tracks(pool, n, rng):
     return rng.sample(list(pool), min(n, len(pool)))
 
 
+# --- Continuous playback (D7; pure helper for the client's auto-advance) ---
+def build_continuation_queue(album, track_uri):
+    """Album's tracks from the clicked track through the end of the album (inclusive).
+
+    A single-track click should auto-advance through the rest of its album instead of
+    stopping after one track. ``album`` is any object exposing ``.tracks`` (a list of objects
+    with ``.uri``); works identically for real and meta/Mixtape albums since both are
+    ``GenericAlbum`` with a populated ``.tracks``. Returns ``[]`` if ``track_uri`` isn't found
+    so the caller can fall back to single-track playback (never softlock). Pure (no Kivy)."""
+    tracks = list(getattr(album, "tracks", None) or [])
+    for i, t in enumerate(tracks):
+        if getattr(t, "uri", None) == track_uri:
+            return tracks[i:]
+    return []
+
+
 # --- Message log / chat console (B4; pure helpers for the client's feed) ---
 def compose_printjson_text(data_parts, resolve):
     """Compose one display string from an AP ``PrintJSON`` packet's ``data`` parts.
