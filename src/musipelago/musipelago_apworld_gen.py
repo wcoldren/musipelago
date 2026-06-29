@@ -408,7 +408,18 @@ def build_meta_albums(
       `target_minutes` per pack (see _balanced_grid).
     """
     rng = random.Random(seed) if seed is not None else random.Random()
-    tracks = [t for album in albums for t in album.tracks]
+    # Tag each track with its origin album (name + cover) before flattening, so a track
+    # regrouped into a Mixtape still knows where it came from. The client shows the real album
+    # in the now-playing bar + the origin cover, even though album_title becomes "Mixtape NN".
+    tracks = [
+        dataclasses.replace(
+            t,
+            source_album=album.title,
+            source_image_url=album.display_image_url or album.image_url,
+        )
+        for album in albums
+        for t in album.tracks
+    ]
     if not tracks:
         return albums
     if shuffle:

@@ -16,6 +16,12 @@ class GenericTrack:
     album_title: str
     duration_ms: int
     service: str
+    # Origin of a track regrouped into a Mixtape (build_meta_albums): the real album it came
+    # from, so the client can show the true album + cover even though album_title is "Mixtape NN".
+    # Empty for non-mixtape builds (client falls back to the container album). Optional =
+    # back-compat with older catalogs and the manual apworld {title,uri,artist} serialization.
+    source_album: str = ""
+    source_image_url: str = ""
 
 
 @dataclass

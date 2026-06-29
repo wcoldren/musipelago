@@ -29,7 +29,7 @@ from musipelago.backends import (
 
 # --- Import Generic UI ---
 from musipelago.client_ui_components import GenericPlaybackInfo, ItemMenu
-from musipelago.utils_client import KIVY_ICON, build_continuation_queue
+from musipelago.utils_client import KIVY_ICON, build_continuation_queue, now_playing_album
 
 
 # -------------------------------------------------------------------
@@ -605,9 +605,14 @@ class SubsonicClientHost(AbstractClientHost):
 
             is_finished = bool(prog and prog.get("is_finished"))
             hidden = getattr(self.app, "hidden_metadata", False) and not is_finished
-            real_artist_album = f"{track_obj.artist} - {track_obj.album_title}"
+            # Show the track's REAL album (source) + origin cover for Mixtape tracks; fall back
+            # to the container album for non-mixtape builds.
+            real_artist_album = f"{track_obj.artist} - {now_playing_album(track_obj)}"
             real_art = KIVY_ICON
-            if parent and (album := self.app.album_data_cache.get(parent)):
+            origin_cover = getattr(track_obj, "source_image_url", "")
+            if origin_cover:
+                real_art = self._get_signed_url(origin_cover) or KIVY_ICON
+            elif parent and (album := self.app.album_data_cache.get(parent)):
                 real_art = self._get_signed_url(album.image_url) or KIVY_ICON
             # Always stash the real values so the D5 peek can reveal the now-playing bar.
             self.playback_info_widget.raw_title = title

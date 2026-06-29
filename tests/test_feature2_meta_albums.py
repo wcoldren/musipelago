@@ -298,3 +298,31 @@ def test_grid_seed_reproducible():
 
 def test_grid_empty_pool_returns_source():
     assert g.build_meta_albums([], mode="grid", count=10, pack_size=5) == []
+
+
+# --- Track origin: mixtape tracks retain their source album name + cover ---
+def _art_album(uri, n, image_url):
+    a = album(uri, n)
+    return GenericAlbum(
+        uri=a.uri,
+        title=a.title,
+        artist=a.artist,
+        image_url=image_url,
+        total_tracks=n,
+        album_type="Album",
+        service="local",
+        tracks=a.tracks,
+    )
+
+
+def test_mixtape_tracks_keep_source_album_and_art():
+    src = [_art_album("alb1", 2, "/covers/alb1.jpg"), _art_album("alb2", 3, "/covers/alb2.jpg")]
+    origin = {t.uri: (al.title, al.image_url) for al in src for t in al.tracks}
+    metas = g.build_meta_albums(src, mode="packs", count=1, seed=1)  # one mixtape, all tracks
+    assert len(metas) == 1
+    for t in metas[0].tracks:
+        exp_album, exp_art = origin[t.uri]
+        assert t.source_album == exp_album  # remembers the real album
+        assert t.source_image_url == exp_art  # remembers the real cover
+        assert t.album_title == "Mixtape 01"  # display grouping is the mixtape
+        assert t.artist == "A"  # real artist preserved
