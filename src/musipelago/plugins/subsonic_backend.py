@@ -576,6 +576,16 @@ class SubsonicClientHost(AbstractClientHost):
             self.app.show_toast("Invalid Track ID")
             return
 
+        # Ownership gate (parity with local files): never stream a track whose album isn't owned.
+        # Returning before current_playing_track_uri is set means on_playback_finished won't
+        # mark it finished / release its AP check — it just advances to the next queued track.
+        prog = self.app.track_progress.get(uri)
+        parent = prog.get("parent_uri") if prog else None
+        if (not parent or parent not in self.app.owned_albums) and not self.app.cheat_mode:
+            self.app.show_toast(f"Skipping unowned: {title}")
+            Clock.schedule_once(lambda dt: self.on_playback_finished(), 0.1)
+            return
+
         params = self.backend._build_params()
         params["id"] = tid
 
@@ -593,14 +603,12 @@ class SubsonicClientHost(AbstractClientHost):
             self.playback_info_widget.current_time = "00:00"
             self.playback_info_widget.total_time = "Loading..."
 
-            prog = self.app.track_progress.get(uri)
             is_finished = bool(prog and prog.get("is_finished"))
             hidden = getattr(self.app, "hidden_metadata", False) and not is_finished
             real_artist_album = f"{track_obj.artist} - {track_obj.album_title}"
             real_art = KIVY_ICON
-            if prog and (parent := prog.get("parent_uri")):
-                if album := self.app.album_data_cache.get(parent):
-                    real_art = self._get_signed_url(album.image_url) or KIVY_ICON
+            if parent and (album := self.app.album_data_cache.get(parent)):
+                real_art = self._get_signed_url(album.image_url) or KIVY_ICON
             # Always stash the real values so the D5 peek can reveal the now-playing bar.
             self.playback_info_widget.raw_title = title
             self.playback_info_widget.raw_artist_album = real_artist_album

@@ -384,10 +384,10 @@ green confirmed on first push.)
   just shipped — masks title/artist/art + stashes `raw_*` so the D5 peek works), `get_settings_ui`,
   cover art (different-but-valid: server `getCoverArt` vs local extraction). **Gaps in Subsonic
   (`subsonic_backend.py`):**
-  - **(correctness, highest) Ownership auto-skip MISSING** — `_play_track_internal` has no
-    owned-album gate, so unowned tracks play *and* `on_playback_finished` marks them finished /
-    releases checks (local skips them at L1298-1304 + guards completion). Lets you progress on albums
-    you haven't unlocked. Fix first regardless of trap work.
+  - **✅ DONE Ownership auto-skip** (`fix/subsonic-ownership-skip`, merged) — added the owned-album
+    gate to `_play_track_internal` (returns before `current_playing_track_uri` is set, so
+    `on_playback_finished` skips to the next queued track without marking the unowned track finished).
+    Mirrors local L1298-1304.
   - **Entire Shuffle Trap subsystem (A1) MISSING** — no `on_trap_received`/`_start_shuffle_trap`/
     `_end_shuffle_trap`/`_cancel_shuffle_trap`/`_resolve_trap_tracks`/`_shuffle_trap_count` nor the
     `_trap_playing`/`_trap_saved`/`_trap_pending` state. A trap received while on Subsonic falls
