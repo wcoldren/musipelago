@@ -100,6 +100,7 @@ from musipelago.plugin_loader import PluginManager
 from musipelago.utils_client import (
     KIVY_ICON,
     _titles_match,
+    ap_color_codes,
     append_capped,
     compose_printjson_text,
     count_pending_traps,
@@ -1605,7 +1606,10 @@ class ArchipelagoClient:
                         )
                         if message_text:
                             markup_text = printjson_markup(
-                                data_parts, self._resolve_printjson_part, self.slot_id
+                                data_parts,
+                                self._resolve_printjson_part,
+                                self.slot_id,
+                                color_codes=ap_color_codes(self.app.theme_name),
                             )
                             Clock.schedule_once(
                                 lambda dt, m=message_text: setattr(
