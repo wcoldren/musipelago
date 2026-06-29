@@ -203,6 +203,13 @@ class IconButton(ButtonBehavior, RelativeLayout):
         )
         self.add_widget(self.image_widget)
         self.bind(icon_source=self.image_widget.setter("source"))
+        # The transport/settings icons are near-white PNGs; multiplicatively tint them by the
+        # theme text color so they read as near-black in light mode (the user found them faint)
+        # and stay light in dark mode. Bound so a live theme switch re-tints them.
+        app = App.get_running_app()
+        if app is not None:
+            self.image_widget.color = app.col_text
+            app.bind(col_text=self.image_widget.setter("color"))
 
 
 # --- CustomLoginPopup ---
