@@ -13,20 +13,75 @@ Workflow: each item lands on its own `feat/…`/`fix/…` branch off `main`, mer
 
 ## A. Gameplay mechanics (the fun stuff)
 
-### A1. Traps — "listen to N trap songs before continuing" — 🟡 · world+client · upstream?
-Trap items are already scaffolded but disabled: `apworld_template/Items.py.j2` has commented
-`"Forcefem Trap"/"Speed Change Trap"` under `junk_items`, and `ItemClassification.trap` is
-supported. The blocker is that the **client has no per-item dispatch** — `_sync_owned_items`
-(`musipelago_client.py:865`) only special-cases `"Album finished!"`.
+### A1. Traps — receive a trap item, suffer an effect — 🟡 · world+client · upstream?
 
-- **world/data:** uncomment/define trap items + weights; add options `EnableTraps` (Toggle) and
-  `TrapSongCount` (Range) in `Options.py.j2`, thread through `MusipelagoOptions` and
-  `fill_slot_data` (`__init__.py.j2:113`); include an item→classification map in `slot_data`.
-- **client:** add a dispatch hook in `_sync_owned_items` (~`:893`) → new
-  `AbstractClientHost.on_trap_received(name, meta)` (`backends.py`); the local-files/subsonic
-  client implements a modal that locks input and force-plays N tracks before resuming.
-- **design choice:** trap songs = random from the library at trigger time (simplest) **or** a
-  curated "trap pool" chosen at generate time (see A4). Recommend starting random, add curation later.
+**A1-dispatch — once-only dispatch infrastructure — ✅ DONE** on `feat/traps-dispatch` (off `dev`).
+The scaffolding was far thinner than "uncomment two items"; the review found:
+- `create_junk_items` only pooled `ItemClassification.filler`, so trap items were **silently
+  excluded** even when uncommented (the comment lied). The stub `"Forcefem Trap"` (edgy, dropped)
+  and `"Speed Change Trap"` were commented out; there were **no options, no slot_data, and no
+  client dispatch** (`_sync_owned_items` only handled album unlocks + the victory item).
+- **The hard part is once-only firing, not the effect.** Album unlocks are persistent
+  set-membership (safe to reprocess the whole backlog); a trap is a one-shot event that must fire
+  **exactly once per received instance** and never re-fire on reconnect (server replays from
+  index 0) or app restart (`received_items` rebuilt from scratch).
+
+What shipped (content-free reference effect — a dismissable "🎵 You hit a trap!" modal):
+- **world:** `EnableTraps` (Toggle, default off) + `TrapPercentage` (Range 0–100, default 20) in
+  `Options.py.j2`; a `trap_items`/`trap_weights` pair + one reference trap `"Bad Track Trap"`
+  (`ItemClassification.trap`) in `Items.py.j2`; `create_junk_items` rewritten as the AP
+  **trap-fill split** (carve `round(N·pct/100)` of the filler budget into weighted trap picks);
+  `fill_slot_data` emits `"traps": {"enabled", "names"}` (`__init__.py.j2`). `Seed`/`Slot` were
+  already in slot_data — reused as the persistence key.
+- **client:** pure `count_pending_traps(received_items, id_to_item_name, trap_names, already_fired)`
+  in `utils_client.py` (headless-tested); `ArchipelagoClient._load_trap_state` (Connected) +
+  `_dispatch_pending_traps` (hung off `_sync_owned_items`) — mirrors `check_victory`'s count-by-id
+  idempotency but **persists a `_traps_fired` cursor per `trap_cursor::Seed::Slot`** in the
+  JsonStore, so reconnect/restart fire 0 already-handled traps. `MusipelagoClientApp.trigger_trap`
+  shows the modal **serialized one-at-a-time** (queue; mirrors the gen `TrackSelectionPopup`
+  pattern) and calls the new `AbstractClientHost.on_trap_received(name)` extension hook
+  (`backends.py`, default no-op). 10 headless tests (`test_traps.py` + `test_e2e_render.py`).
+
+**Concrete trap effects (register into `trigger_trap`/`on_trap_received`):** the dispatch table
+is the plumbing; effects are cheap to add. The flagship **Shuffle Trap is done** (below); the
+rest are deferred. Content-need tiers:
+- **Tier 0 (no audio shipped — manipulate the player's own library/playback/UI):**
+  - **Shuffle Trap** ✅ **DONE** (`feat/traps-dispatch`) — force-replays **N tracks the player
+    has already finished** (`track_progress.is_finished` ∩ `owned_albums`), then resumes. The
+    licensing-clean "rickroll": only replays music you've actually heard, so it awards nothing
+    new (`complete_track` no-ops on finished tracks) and never reveals an unheard track in hidden
+    mode. **N is a client setting** (`shuffle_trap_count`, default 1, clamp 1–10). Empty pool →
+    falls back to the reference modal (never a softlock or silent no-op). Effect lives in
+    `LocalFilesClientHost.on_trap_received` (returns True to suppress the modal); pure selection
+    in `utils_client.{eligible_shuffle_tracks,pick_shuffle_tracks}`; serialized one-at-a-time via
+    `_trap_playing`/`_trap_pending`; volume left untouched (respects mute). World item
+    `"Shuffle Trap"` (id 2005002, weight 3) in `Items.py.j2`.
+  - **Seek/Scrub Trap** — yank the playhead on the *current* track: **replay the last N seconds**
+    (jump back) or **skip forward N seconds**. Cheap — `audio_player` already exposes
+    position/duration; needs only a `seek`/`set_position` wrapper. **Must clamp to the song's
+    bounds** (`0 ≤ target ≤ duration`): a back-seek floors at 0 (no underflow), a forward-seek
+    near/past the end should clamp just before `duration` (or treat reaching the end as a normal
+    finish) so it never seeks out of range or skips the track's check. Trivial, audio-safe (no
+    volume/flash), reuses the Shuffle Trap's serialization. Good second effect.
+  - **Speed Change Trap** — next track chipmunk-fast / sludge-slow (needs a new `set_rate` wrapper
+    across the vlc/ff/kivy players — none exposes rate today).
+  - **Re-mask Trap** — re-hide the next track's title/artist/art (pure reuse of A3 masking).
+  - **Repeat Trap** — next track must loop K times before its check releases.
+  - **Guess-gate Trap** — force one track behind a guess prompt (pure reuse of A2a).
+  - **Soft Re-lock Trap** — re-lock a random unlocked album for T minutes, **auto-expiring**.
+  - **Cosmetic Trap** — garish theme flip (reuse B2) / scrambled rows / shake. Harmless, funny.
+- **Tier 1 (player-supplied, opt-in):** a Settings path for *your own* trap clip (BYO rickroll).
+- **Tier 2 (bundled):** a tiny CC0/public-domain stinger, only if wanted.
+
+**Trap-safety + softlock rules (govern every effect — non-negotiable):**
+1. **No softlock** — a trap must auto-resolve and can NEVER permanently block an AP location
+   (time-boxed or always-finishable; soft re-locks must auto-expire).
+2. **No hearing/equipment hazard** — **NO sudden loud-volume traps** (a "Volume Trap" was
+   considered and **dropped**: forced loudness can hurt ears/gear). No abrupt volume jumps; any
+   audio effect stays within the user's current level.
+3. **No flashing/seizure-risk visuals** in cosmetic traps.
+
+- **A4 synergy:** a curated "trap pool" chosen at generate time (see A4) can later feed Shuffle.
 
 ### A2. Guess-the-song mode — "name the album / artist / song" — 🟡 · client/world · upstream?
 You identify the playing track (fuzzy-match on `GenericTrack.{title,artist,album_title}` via
@@ -80,6 +135,50 @@ Shipped on `feat/randomizer-controls` (off `feat/meta-albums`) → `dev`; 8 test
 - **A5b (deferred, world+regen):** a YAML/AP-seed variant — bake the full catalog and subset+shuffle
   per-player at AP-generation using the AP seed (more Archipelago-native, per-player variation in a
   multiworld). Promote once online/multiworld play starts.
+
+### A6. Random / shuffled album reveal order (incl. the starting album) — 🟢 · world/data (+gen) · upstream?
+"Always Eaten Back to Life first" is the **fixed `StartingAlbum: album_001`** (`Options.py.j2`
+`StartingAlbum(Choice)`, `default = 1` = first album in catalog order). Albums are independently
+item-gated (no chain), so *subsequent* unlock order already varies per seed via AP's fill — only
+the start is pinned.
+- **Works today, no code:** set **`StartingAlbum: random`** in the player YAML. AP `Choice`
+  options accept `random` (and `random-low`/`random-high`/weighted dicts), so AP rolls a random
+  album as the start. That alone removes the fixed first album.
+- **Roadmap extras:** (a) make random the convenient default — emit `StartingAlbum: random` in the
+  gen app's starter YAML and document it; (b) optional true **reveal-order control** — a gen/world
+  knob to bias unlock placement so albums reveal in a deliberately shuffled cadence. Mostly docs +
+  a starter-YAML default since the core already works.
+
+### A7. Per-song unlock granularity (unlock single tracks, not whole albums) — 🔴 · world+regen · upstream?
+Today unlocking is **per album**: each album is one Region (`Regions.py.j2:22`
+`create_region_and_connect`) whose entrance "Unlock [artist] [album]" is gated by a single album
+progression item (`Rules.py.j2:23-24`, `state.has("[artist] [album]")`); every track is a location
+inside that region, so one item reveals the whole album (`ap_skeleton_chapters` = one progression
+item per album). **No per-track gating exists.** A "single song" mode gates each track on its own
+item/rule (per-track entrance rules or per-track regions) + one unlock item per track — a
+structural generation-time change across `Items/Locations/Regions/Rules.py.j2` (+ `Types`/`__init__`)
+that **requires regen** (AP locations/items are fixed at gen). Knock-ons: item count grows to
+~#tracks (re-balance the filler/trap/overshoot math); victory + `StartingAlbum` semantics shift
+(start = a track? an album?); pairs with A2b. Best as a gen/world **mode toggle**
+(per-album default ↔ per-track) so existing seeds are unaffected. (`AllowPlayingAnyTrack` already
+lets you *play* any track regardless of unlock — this is about *check-gating*.)
+
+### A8. Helpful / "boon" items + filler review — 🟡 · world (+client) · upstream?
+**Current pool (review, as of `feat/traps-dispatch`):** three classes only — **progression**
+("Album finished!" victory + one per-album unlock in `ap_skeleton_chapters`), **filler** (4
+pure-flavor no-ops — "Scratched disc", ".mov file", "Funny animal .gif", "Concert tickets" in
+`junk_items`, equal `junk_weights`, **zero gameplay effect**), and **trap** ("Bad Track Trap").
+There are **no `ItemClassification.useful` items and no positive-effect items** — filler is cosmetic
+text, traps are the only items that *do* something.
+**Proposal — add helpful "boon" items as the positive counterpart to traps**, reusing A1's
+once-only dispatch (the `_dispatch_pending_traps` / `on_trap_received` machinery generalizes to a
+per-item effect hook). Candidates (client-side, softlock-safe): **Reveal token** (reveal one hidden
+track — A3 synergy), **Skip/auto-complete token** (release one track's check — also a guess-mode
+escape, A2), **Hint** (cheap progressive hint, A2c), **Unlock-a-track / free unlock** (grant one
+album/track early — pairs with A7), **cosmetic/theme boon**. Classify `useful` (or `progression`
+if they grant unlocks). Also rebalance `junk_weights`, decide the junk/trap/useful split, and fold
+in the known item-pool **overshoot** quirk (`get_total_locations - len(itempool) - 1` ignores the
+locked victory locations). Same trap-safety rules apply (no softlock).
 
 ## B. UI / UX
 
@@ -174,6 +273,19 @@ in the separate "Subsonic now-playing masking parity" follow-up; row art already
   now-playing metadata. `total_tracks` exists; **album year needs a new `GenericAlbum` field + backend
   changes** (heavier). Pairs with B2 theming. Not done.
 
+### B4. Message log / chat console (TextClient-style) — 🟡 · client · upstream?
+Other AP clients (TextClient, BizHawk) show a scrolling feed of items sent/received, hints, and
+chat; the music client shows none of it — you can only watch the stream on the MultiServer console.
+The plumbing is half-built: inbound `PrintJSON` is parsed and item/location/player ids resolved to
+names (`musipelago_client.py` ~1494 via `get_ap_info`), but only the **latest** line is kept — it
+overwrites the single-line `ap_status_text` bar (`StringProperty` :597, rendered by the lone
+`ap_status_bar` Label, `musipelagoclient.kv:117`). Outbound chat already works:
+`send_chat_message`/`_async_send_say` send a `Say` packet (:1634), used today only to fire `!hint`.
+Build: a collapsible **log panel** (a `RecycleView` like the track lists, or a scrolling Label in a
+`ScrollView`) that **appends** each resolved `PrintJSON` line to a ring buffer (colour by part type),
+plus an optional **chat `TextInput`** wired straight to `send_chat_message`. Pure UI over existing
+parsing + send paths; no protocol changes. Clean and general → worth a PR upstream.
+
 ## C. Foundation / robustness (make play reliable)
 
 ### C1. AP auto-reconnect — 🔴 · client · upstream? — **high value for real play**
@@ -263,6 +375,9 @@ jumps up the list once online/multiworld play starts. A2/A3 are client-side togg
 4. **C5** — tests + CI — ✅ done (foundation) — **pulled forward** from "last": feature velocity had
    outrun the safety net, the harness was stranded in scratch, and it makes the upstream PRs reviewable.
 5. **A1** — traps (flagship; first item needing world changes + the per-item dispatch hook).
+   **Dispatch + once-only infra ✅ done** (`feat/traps-dispatch`); **flagship Shuffle Trap
+   ✅ done** (force-replays N already-played tracks, N a client setting). Remaining effects
+   (Seek/Scrub, Speed/Re-mask/…) register into the same hook next — see A1.
 6. **A4** — generator-side curation for traps/quiz (builds on A1).
 7. **A5** — randomizer controls (#mixtapes / #checks / subset+shuffle / minutes-per-pack; gen-app, builds on meta-albums) — ✅ done.
 8. **B3** — album art: display already shipped upstream; **hidden-mode art masking ✅ done**
@@ -272,9 +387,13 @@ jumps up the list once online/multiworld play starts. A2/A3 are client-side togg
 10. **C1 + C2 + C4b** — reliability phase: auto-reconnect, thread-safety, broad-`except` hardening.
     Promote this the moment online/multiworld play begins.
 
-**Backlog (opportunistic):** D1–D5 above; D3 is partly delivered by A3's Settings surface.
+**Backlog (opportunistic):** D1–D5 above; D3 is partly delivered by A3's Settings surface. Newer
+captures: **A6** (random album reveal — `StartingAlbum: random` usable now, small) and **A8**
+(helpful/"boon" items + filler review) are gameplay siblings of A5/A1; **A7** (per-song unlock) is a
+larger world+regen item; **B4** (message log / chat console) is a UI backlog item.
 **Dependencies:** A3 → A2 (reveal plumbing) and A3 → Settings surface (reused by C3, B2);
-A1 → A4; A5 builds on meta-albums; B3 pairs with B2; C4b travels with C1/C2.
+A1 → A4; A1 → A8 (boon items reuse the trap dispatch hook); A5 builds on meta-albums; B3 pairs
+with B2; A7 pairs with A2b and ↔ A6 (start semantics); C4b travels with C1/C2.
 
 ## Key code references (for implementers)
 
@@ -282,5 +401,6 @@ A1 → A4; A5 builds on meta-albums; B3 pairs with B2; C4b travels with C1/C2.
   `musipelago_client.py` `_sync_owned_items` (~865) / `check_victory` (~934) / list population (~654);
   `backends.py` (`GenericTrack`, `AbstractClientHost`).
 - **UI:** `musipelagoclient.kv` (`CustomListItem` ~235–289, `GenericPlaybackInfo` ~127–189);
-  `client_ui_components.py`.
+  `client_ui_components.py`. Message log/chat (B4): `ap_status_text` (`musipelago_client.py:597`),
+  `PrintJSON` handler (~1494), `ap_status_bar` (`musipelagoclient.kv:117`), `send_chat_message` (:1634).
 - **Robustness:** `musipelago_client.py` `run()` (~841); `vlc_/ff_/kivy_audio_player.py`; `pyproject.toml`.

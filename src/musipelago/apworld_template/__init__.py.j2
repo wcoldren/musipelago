@@ -17,7 +17,7 @@ from worlds.AutoWorld import World, CollectionState, WebWorld
 from typing import Dict
 
 from .Locations import get_location_names, get_total_locations
-from .Items import create_item, create_itempool, item_table
+from .Items import create_item, create_itempool, item_table, trap_items
 from .Options import MusipelagoOptions
 from .Regions import create_regions
 from .Types import AlbumType, album_id_to_title
@@ -118,7 +118,13 @@ class MusipelagoWorld(World):
             },
             "Seed": self.multiworld.seed_name,  # to verify the server's multiworld
             "Slot": self.multiworld.player_name[self.player],  # to connect to server
-            "TotalLocations": get_total_locations(self) # get_total_locations(self) comes from Locations.py
+            "TotalLocations": get_total_locations(self), # get_total_locations(self) comes from Locations.py
+            # Tells the client which received items are traps so it can dispatch
+            # an effect (once per instance). Names must match item_table keys.
+            "traps": {
+                "enabled": bool(self.options.EnableTraps.value),
+                "names": list(trap_items.keys()),
+            }
         }
 
         return slot_data

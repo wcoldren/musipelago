@@ -103,6 +103,40 @@ def test_victory_count_matches_album_count(rendered):
     assert m and int(m.group(1)) == len(metas)
 
 
+def test_trap_item_and_slotdata_rendered(rendered):
+    """A1: the reference trap is baked into item_table with trap classification, the
+    fill_slot_data ``traps`` block is present (names match the trap dict), the trap options
+    exist, and the inherited edgy stub is gone. The whole world already compiles (fixture)."""
+    texts, _ = rendered
+    items, init, opts = texts["Items.py.j2"], texts["__init__.py.j2"], texts["Options.py.j2"]
+
+    # Reference trap present with trap classification; old stub removed.
+    assert re.search(r'"Bad Track Trap":\s*ItemData\(\d+,\s*ItemClassification\.trap', items)
+    assert "Forcefem" not in items
+    # trap_items feeds both item_table and slot_data names.
+    assert "trap_items" in items and "**trap_items" in items
+    assert '"traps"' in init and '"enabled"' in init and "trap_items.keys()" in init
+    # Options exist and are wired into the dataclass.
+    assert "class EnableTraps(Toggle)" in opts and "class TrapPercentage(Range)" in opts
+    assert "EnableTraps:" in opts and "TrapPercentage:" in opts
+
+
+def test_shuffle_trap_item_rendered(rendered):
+    """The flagship Shuffle Trap is baked into trap_items/trap_weights with trap
+    classification and a unique id; fill_slot_data emits all trap names from trap_items."""
+    texts, _ = rendered
+    items = texts["Items.py.j2"]
+
+    # Shuffle Trap present with trap classification.
+    assert re.search(r'"Shuffle Trap":\s*ItemData\(\d+,\s*ItemClassification\.trap', items)
+    # Weighted in trap_weights alongside the reference trap.
+    assert re.search(r'"Shuffle Trap":\s*\d+', items)
+
+    # Every trap item id is unique (no collision between Bad Track / Shuffle).
+    trap_ids = re.findall(r'"[^"]+ Trap":\s*ItemData\((\d+),\s*ItemClassification\.trap', items)
+    assert len(trap_ids) >= 2 and len(trap_ids) == len(set(trap_ids))
+
+
 def test_subset_shrinks_rendered_location_count(tmp_path):
     """A5: a `subset=K` build must bake exactly K AP locations into the rendered
     world — proving the check-count knob really shrinks the location pool."""

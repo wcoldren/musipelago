@@ -25,8 +25,28 @@ class AllowPlayingAnyTrack(Toggle):
     display_name = "Allow playing any track"
     default = True
 
+class EnableTraps(Toggle):
+    """
+    Put trap items into the pool. When a trap is received the client triggers
+    an effect (e.g. an interruption). Off by default.
+    """
+    display_name = "Enable traps"
+    default = False
+
+class TrapPercentage(Range):
+    """
+    Of the filler items in the pool, what percentage should be traps instead.
+    Only matters when traps are enabled. 0 = no traps, 100 = all filler is traps.
+    """
+    display_name = "Trap percentage"
+    range_start = 0
+    range_end = 100
+    default = 20
+
 
 @dataclass
 class MusipelagoOptions(PerGameCommonOptions):
     StartingAlbum:            StartingAlbum
     AllowPlayingAnyTrack:     AllowPlayingAnyTrack
+    EnableTraps:              EnableTraps
+    TrapPercentage:           TrapPercentage

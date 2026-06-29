@@ -82,6 +82,53 @@ def _titles_match(guess, answer):
     return difflib.SequenceMatcher(None, g, a).ratio() >= 0.85
 
 
+# --- Trap dispatch (pure; used by the client's once-only trap firing) ---
+def count_pending_traps(received_items, id_to_item_name, trap_names, already_fired):
+    """How many *new* trap instances need to fire, given what's been received and the
+    persisted ``already_fired`` cursor.
+
+    ``received_items`` is the client's append-only list of AP item packets (dicts with an
+    ``"item"`` id). We resolve each id to a name via ``id_to_item_name`` and count those whose
+    name is in ``trap_names``, then subtract the count we've already acted on. Mirrors
+    ``check_victory``'s count-by-id idempotency, but persisted: on a reconnect or app restart
+    the server replays the full backlog, so recounting against the saved cursor yields 0 for
+    traps already handled — they never re-fire. Pure (no Kivy) so it tests headlessly."""
+    if not trap_names:
+        return 0
+    seen = 0
+    for item in received_items:
+        name = id_to_item_name.get(item.get("item"))
+        if name in trap_names:
+            seen += 1
+    return max(0, seen - already_fired)
+
+
+# --- Shuffle Trap selection (pure; used by the client's Shuffle Trap effect) ---
+def eligible_shuffle_tracks(track_progress, owned_albums):
+    """URIs of tracks a Shuffle Trap may replay: already finished AND still owned.
+
+    ``track_progress`` maps track-uri -> dict with ``is_finished`` and ``parent_uri`` (the
+    album). The Shuffle Trap force-replays tracks the player has actually heard, so we only
+    ever pick finished tracks whose parent album is unlocked. Replaying a finished track awards
+    nothing new (``complete_track`` no-ops on finished tracks) and never reveals an unheard
+    track in hidden mode. Pure (no Kivy) so it tests headlessly."""
+    return [
+        uri
+        for uri, data in track_progress.items()
+        if data.get("is_finished") and data.get("parent_uri") in owned_albums
+    ]
+
+
+def pick_shuffle_tracks(pool, n, rng):
+    """Pick up to ``n`` distinct URIs from ``pool`` using ``rng`` (a ``random.Random``).
+
+    Returns ``[]`` for an empty pool or non-positive ``n``; otherwise a sample of
+    ``min(n, len(pool))`` distinct entries. Pure/deterministic under a seeded ``rng``."""
+    if not pool or n <= 0:
+        return []
+    return rng.sample(list(pool), min(n, len(pool)))
+
+
 # --- Hidden-mode row reveal (pure; used by the client's hidden/guess feature) ---
 def unmask_row(track_data):
     """Restore a masked track row's real title/artist/location line and cover art in place.

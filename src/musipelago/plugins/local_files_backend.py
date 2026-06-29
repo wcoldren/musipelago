@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import os
+import random
 import re
 import threading
 
@@ -49,6 +50,7 @@ from musipelago.utils import (
     collect_source_covers,
     find_cover_in_dir,
 )
+from musipelago.utils_client import eligible_shuffle_tracks, pick_shuffle_tracks
 
 
 def parse_track_no(raw):
@@ -863,6 +865,13 @@ class LocalFilesClientHost(AbstractClientHost):
         self.playback_queue = []
         self.queue_index = -1
 
+        # Shuffle Trap state. _trap_playing is set while a forced replay is in progress so the
+        # queue-finished branch restores prior playback instead of parking; _trap_saved holds
+        # what to resume; _trap_pending serializes overlapping Shuffle Traps (one at a time).
+        self._trap_playing = False
+        self._trap_saved = None
+        self._trap_pending = 0
+
         # UI References
         self.playback_ui = None
         self.track_label = None
@@ -1120,14 +1129,125 @@ class LocalFilesClientHost(AbstractClientHost):
             self.playback_info_widget.track_title = "Stopped"
             self.playback_info_widget.progress_value = 0
 
+    # --- Shuffle Trap (flagship trap effect) ---
+    def _shuffle_trap_count(self):
+        """Number of tracks one Shuffle Trap replays (client setting, default 1, min 1)."""
+        try:
+            return max(1, int(getattr(self.app, "shuffle_trap_count", 1)))
+        except (TypeError, ValueError):
+            return 1
+
+    def _resolve_trap_tracks(self, uris):
+        """Map already-played track URIs to their real GenericTrack objects (correct
+        title/artist) from the album cache, so the now-playing bar isn't blanked."""
+        tracks = []
+        for uri in uris:
+            prog = self.app.track_progress.get(uri) or {}
+            album = self.app.album_data_cache.get(prog.get("parent_uri"))
+            if not album:
+                continue
+            for track in album.tracks:
+                if track.uri == uri:
+                    tracks.append(track)
+                    break
+        return tracks
+
+    def on_trap_received(self, name: str) -> bool:
+        """Shuffle Trap: force-replay N tracks the player has already finished, then resume.
+
+        Returns True when this host consumes the trap (the app then skips the reference
+        modal). Only "Shuffle Trap" is handled. An empty already-played pool returns False so
+        the generic modal still gives feedback — never a silent no-op, never a softlock."""
+        if name != "Shuffle Trap":
+            return False
+
+        pool = eligible_shuffle_tracks(self.app.track_progress, self.app.owned_albums)
+        tracks = self._resolve_trap_tracks(
+            pick_shuffle_tracks(pool, self._shuffle_trap_count(), random.Random())
+        )
+        if not tracks:
+            return False  # nothing finished yet -> fall back to the reference modal
+
+        if self._trap_playing:
+            # Serialize: one Shuffle Trap at a time. Queue it; it starts (with a freshly
+            # rolled pool) when the current forced replay ends. The original _trap_saved is
+            # kept so the very last trap still resumes what was first interrupted.
+            self._trap_pending += 1
+        else:
+            self._start_shuffle_trap(tracks)
+        return True
+
+    def _start_shuffle_trap(self, tracks):
+        """Save current playback, then force-play the given already-finished tracks in order.
+        Volume is left untouched (respects mute; no sudden-loud-volume per ROADMAP A1)."""
+        self._trap_saved = {
+            "queue": list(self.playback_queue),
+            "index": self.queue_index,
+            "uri": self.current_playing_track_uri,
+            "was_playing": self.is_playing,
+        }
+        self._trap_playing = True
+        self.app.show_toast(f"\U0001f3b5 Shuffle Trap! Replaying {len(tracks)} track(s)…")
+        self.playback_queue = list(tracks)
+        self.queue_index = 0
+        self._play_track_internal(tracks[0])
+
+    def _end_shuffle_trap(self):
+        """A forced replay queue exhausted. Start a queued Shuffle Trap if one is pending;
+        otherwise resume the interrupted playback (or park if nothing was playing)."""
+        if self._trap_pending > 0:
+            self._trap_pending -= 1
+            pool = eligible_shuffle_tracks(self.app.track_progress, self.app.owned_albums)
+            tracks = self._resolve_trap_tracks(
+                pick_shuffle_tracks(pool, self._shuffle_trap_count(), random.Random())
+            )
+            if tracks:
+                self.playback_queue = list(tracks)
+                self.queue_index = 0
+                self._play_track_internal(tracks[0])
+                return
+
+        # No (more) pending traps: restore prior state and clear trap flags.
+        saved = self._trap_saved or {}
+        self._trap_playing = False
+        self._trap_saved = None
+        self._trap_pending = 0
+
+        resume_uri = saved.get("uri")
+        resume_queue = saved.get("queue") or []
+        resume_index = saved.get("index", -1)
+        if saved.get("was_playing") and resume_uri and 0 <= resume_index < len(resume_queue):
+            Logger.info("LocalFiles: Shuffle Trap done -> resuming interrupted playback.")
+            self.playback_queue = list(resume_queue)
+            self.queue_index = resume_index
+            self._play_track_internal(resume_queue[resume_index])
+        else:
+            Logger.info("LocalFiles: Shuffle Trap done -> nothing to resume; parking.")
+            self.is_playing = False
+            self.current_playing_track_uri = None
+            if self.playback_info_widget:
+                self.playback_info_widget.track_title = "Finished"
+                self.playback_info_widget.progress_value = 100
+                self.playback_info_widget.current_time = "00:00"
+            self.playback_queue = []
+            self.queue_index = -1
+
+    def _cancel_shuffle_trap(self):
+        """User-initiated playback during a trap cancels the forced replay/restore cleanly."""
+        self._trap_playing = False
+        self._trap_saved = None
+        self._trap_pending = 0
+
     def on_playback_finished(self):
         Logger.info("LocalFiles: Track finished naturally.")
 
         # 1. Stop polling while we switch
         self.stop_polling()
 
-        # 2. Handle completion logic
-        if self.current_playing_track_uri:
+        # 2. Handle completion logic. During a Shuffle Trap the queue is already-finished
+        # tracks, so this block is naturally skipped (complete_track no-ops on finished
+        # tracks); the _trap_playing guard keeps the guess-mode toast from firing either way.
+        if self.current_playing_track_uri and not self._trap_playing:
             track_uri = self.current_playing_track_uri
             track_data = self.app.track_progress.get(track_uri)
             if track_data and not track_data["is_finished"]:
@@ -1146,6 +1266,9 @@ class LocalFilesClientHost(AbstractClientHost):
             self.queue_index = next_index
             next_track = self.playback_queue[next_index]
             self._play_track_internal(next_track)
+        elif self._trap_playing:
+            # Forced Shuffle Trap queue exhausted -> resume what was interrupted (or park).
+            self._end_shuffle_trap()
         else:
             Logger.info("LocalFiles: Queue finished.")
             self.is_playing = False
@@ -1212,6 +1335,7 @@ class LocalFilesClientHost(AbstractClientHost):
 
     def _play_track(self, track_uri: str, track_title: str):
         self.stop_polling()
+        self._cancel_shuffle_trap()  # user took over -> drop any forced replay/restore
         track_obj = GenericTrack(
             uri=track_uri,
             title=track_title,
@@ -1228,6 +1352,7 @@ class LocalFilesClientHost(AbstractClientHost):
         """
         Loads all tracks from the album into the queue and starts playback.
         """
+        self._cancel_shuffle_trap()  # user took over -> drop any forced replay/restore
         # 1. Check ownership
         if album_uri not in self.app.owned_albums and not self.app.cheat_mode:
             self.app.show_toast("You do not own this album yet.")
