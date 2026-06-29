@@ -130,6 +130,17 @@ checks = **sample a subset of size K from the pool before packing** (✅); (c) s
 (d) **minutes-per-pack** mode — greedily fill each mixtape to ~N minutes via `GenericTrack.duration_ms`,
 each track landing on whichever boundary keeps the pack closest to target (✅, added on user request).
 Shipped on `feat/randomizer-controls` (off `feat/meta-albums`) → `dev`; 8 tests (53 total, headless).
+(e) **Balanced grid** mode — ✅ **DONE** (`feat/grid-mixtapes` → `dev`): the prior modes are mutually
+exclusive (one of pack-count / songs-per-pack / minutes), so "**N packs × M songs at ~T min/pack**"
+(e.g. 10 packs of 5 ~20 min) wasn't expressible. The constraints are over-determined, so grid fixes the
+**N×M grid hard** and treats minutes as **soft**: it draws a seeded random N×M sample, then
+**LPT-balances** assignment (longest song first into the lightest size-`M` pack — optional soft target)
+so per-pack run-times cluster evenly instead of the lumpy near-equal split. New pure
+`_balanced_grid`/`mode='grid'` + `pack_size`/`target_minutes` on `build_meta_albums`; UI "Balanced grid"
+spinner value + Songs-per-pack/Target-min fields. Grid stays exact when pool ≥ N×M (extras dropped),
+keeps size M with fewer packs when smaller. `subset` ignored in grid (N×M defines the count). 10 tests
+(194 total). **Note:** selection stays a random seedable draw (not target-aware), so achieved minutes
+track the library's average song length — the LPT balance only evens packs around that mean.
 
 - **Decided: gen-app controls (v1).** AP **locations are fixed at generation time**, so the check-count
   and chosen track subset bake into the `.apworld` — they belong in the gen app, not the player YAML.
