@@ -42,11 +42,27 @@ What shipped (content-free reference effect — a dismissable "🎵 You hit a tr
   pattern) and calls the new `AbstractClientHost.on_trap_received(name)` extension hook
   (`backends.py`, default no-op). 10 headless tests (`test_traps.py` + `test_e2e_render.py`).
 
-**Next — concrete trap effects (register into `trigger_trap`/`on_trap_received`; deferred):**
-The dispatch table is the plumbing; effects are cheap to add. Content-need tiers:
+**Concrete trap effects (register into `trigger_trap`/`on_trap_received`):** the dispatch table
+is the plumbing; effects are cheap to add. The flagship **Shuffle Trap is done** (below); the
+rest are deferred. Content-need tiers:
 - **Tier 0 (no audio shipped — manipulate the player's own library/playback/UI):**
-  - **Shuffle Trap** — endure N random tracks from *your own* library before resuming (the
-    licensing-clean "rickroll": your music, not your choice). Natural flagship.
+  - **Shuffle Trap** ✅ **DONE** (`feat/traps-dispatch`) — force-replays **N tracks the player
+    has already finished** (`track_progress.is_finished` ∩ `owned_albums`), then resumes. The
+    licensing-clean "rickroll": only replays music you've actually heard, so it awards nothing
+    new (`complete_track` no-ops on finished tracks) and never reveals an unheard track in hidden
+    mode. **N is a client setting** (`shuffle_trap_count`, default 1, clamp 1–10). Empty pool →
+    falls back to the reference modal (never a softlock or silent no-op). Effect lives in
+    `LocalFilesClientHost.on_trap_received` (returns True to suppress the modal); pure selection
+    in `utils_client.{eligible_shuffle_tracks,pick_shuffle_tracks}`; serialized one-at-a-time via
+    `_trap_playing`/`_trap_pending`; volume left untouched (respects mute). World item
+    `"Shuffle Trap"` (id 2005002, weight 3) in `Items.py.j2`.
+  - **Seek/Scrub Trap** — yank the playhead on the *current* track: **replay the last N seconds**
+    (jump back) or **skip forward N seconds**. Cheap — `audio_player` already exposes
+    position/duration; needs only a `seek`/`set_position` wrapper. **Must clamp to the song's
+    bounds** (`0 ≤ target ≤ duration`): a back-seek floors at 0 (no underflow), a forward-seek
+    near/past the end should clamp just before `duration` (or treat reaching the end as a normal
+    finish) so it never seeks out of range or skips the track's check. Trivial, audio-safe (no
+    volume/flash), reuses the Shuffle Trap's serialization. Good second effect.
   - **Speed Change Trap** — next track chipmunk-fast / sludge-slow (needs a new `set_rate` wrapper
     across the vlc/ff/kivy players — none exposes rate today).
   - **Re-mask Trap** — re-hide the next track's title/artist/art (pure reuse of A3 masking).
@@ -359,8 +375,9 @@ jumps up the list once online/multiworld play starts. A2/A3 are client-side togg
 4. **C5** — tests + CI — ✅ done (foundation) — **pulled forward** from "last": feature velocity had
    outrun the safety net, the harness was stranded in scratch, and it makes the upstream PRs reviewable.
 5. **A1** — traps (flagship; first item needing world changes + the per-item dispatch hook).
-   **Dispatch + once-only infra ✅ done** (`feat/traps-dispatch`); concrete effects (Shuffle/
-   Speed/Re-mask/…) register into it next — see A1.
+   **Dispatch + once-only infra ✅ done** (`feat/traps-dispatch`); **flagship Shuffle Trap
+   ✅ done** (force-replays N already-played tracks, N a client setting). Remaining effects
+   (Seek/Scrub, Speed/Re-mask/…) register into the same hook next — see A1.
 6. **A4** — generator-side curation for traps/quiz (builds on A1).
 7. **A5** — randomizer controls (#mixtapes / #checks / subset+shuffle / minutes-per-pack; gen-app, builds on meta-albums) — ✅ done.
 8. **B3** — album art: display already shipped upstream; **hidden-mode art masking ✅ done**
