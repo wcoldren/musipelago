@@ -589,20 +589,32 @@ class SubsonicClientHost(AbstractClientHost):
 
         # Update UI
         if self.playback_info_widget:
-            self.playback_info_widget.track_title = title
             self.playback_info_widget.progress_value = 0
             self.playback_info_widget.current_time = "00:00"
             self.playback_info_widget.total_time = "Loading..."
-            self.playback_info_widget.artist_album = f"{track_obj.artist} - {track_obj.album_title}"
 
-            # Attempt to get Cover Art
-            # NOTE: hidden-mode masking (title/artist/art) for the Subsonic now-playing bar is
-            # deferred to the "Subsonic now-playing masking parity" follow-up — mask all three
-            # together there (masking only the art while the name still shows would be incoherent).
             prog = self.app.track_progress.get(uri)
+            is_finished = bool(prog and prog.get("is_finished"))
+            hidden = getattr(self.app, "hidden_metadata", False) and not is_finished
+            real_artist_album = f"{track_obj.artist} - {track_obj.album_title}"
+            real_art = KIVY_ICON
             if prog and (parent := prog.get("parent_uri")):
                 if album := self.app.album_data_cache.get(parent):
-                    self.playback_info_widget.art_source = self._get_signed_url(album.image_url)
+                    real_art = self._get_signed_url(album.image_url) or KIVY_ICON
+            # Always stash the real values so the D5 peek can reveal the now-playing bar.
+            self.playback_info_widget.raw_title = title
+            self.playback_info_widget.raw_artist_album = real_artist_album
+            self.playback_info_widget.raw_art_source = real_art
+            # In hidden mode the currently-playing (not-yet-finished) track is the one you're
+            # trying to recognize, so mask title/artist/cover together (parity with local files).
+            if hidden:
+                self.playback_info_widget.track_title = "Unknown Track"
+                self.playback_info_widget.artist_album = "Unknown Artist"
+                self.playback_info_widget.art_source = KIVY_ICON
+            else:
+                self.playback_info_widget.track_title = title
+                self.playback_info_widget.artist_album = real_artist_album
+                self.playback_info_widget.art_source = real_art
 
         Logger.info(f"Subsonic: Streaming ({self.transcode_format}): {stream_url}")
         self.app.audio_player.play(stream_url)
