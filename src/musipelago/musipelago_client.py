@@ -102,10 +102,13 @@ from musipelago.utils_client import (
     _titles_match,
     ap_color_codes,
     append_capped,
+    clear_peek_state,
     compose_printjson_text,
     count_pending_traps,
     global_exception_handler,
     make_log_entry,
+    peek_rehide_row,
+    peek_reveal_row,
     printjson_markup,
     unmask_row,
 )
@@ -1123,6 +1126,7 @@ class RootLayout(BoxLayout):
         for track_data in track_rv.data:
             if track_data["raw_uri"] == track_uri:
                 self._unmask_track_row(track_data)
+                clear_peek_state(track_data)  # properly revealed -> a peek-toggle must not re-hide
                 track_data["can_reveal"] = False  # collapse the per-row Reveal button
                 track_data["can_guess"] = False  # giving up ends guessing for this row
                 track_rv.refresh_from_data()
@@ -1137,10 +1141,11 @@ class RootLayout(BoxLayout):
         return False
 
     def peek_playing_track(self):
-        """Reveal the currently-playing track's hidden metadata as a transient *peek* — unlike
-        ``reveal_track`` this never calls ``complete_track``, so in guess mode it is NOT a
-        give-up and releases no AP check. The unmask isn't persisted: the next
-        ``populate_track_list`` re-masks it (per ``hidden = hidden_metadata and not finished``)."""
+        """Toggle a transient *peek* of the currently-playing track's hidden metadata. Unlike
+        ``reveal_track`` it never calls ``complete_track`` (no give-up, releases no AP check) and
+        it is reversible: press again to re-hide. Only rows revealed *by this peek* (flagged
+        ``_peeked``) are ever re-hidden — a properly-revealed row (finished / Reveal) had its peek
+        markers cleared, so it stays shown."""
         app = App.get_running_app()
         host = getattr(app, "client_host_ui", None)
         uri = getattr(host, "current_playing_track_uri", None) if host else None
@@ -1150,9 +1155,16 @@ class RootLayout(BoxLayout):
         track_rv = self.ids.list_container.ids.track_rv
         for track_data in track_rv.data:
             if track_data.get("raw_uri") == uri:
-                self._unmask_track_row(track_data)  # peek only — no can_reveal/can_guess flip
-                track_rv.refresh_from_data()
-                app.show_toast("Revealed the playing track (peek).")
+                if track_data.get("_peeked"):
+                    peek_rehide_row(track_data)
+                    track_rv.refresh_from_data()
+                    app.show_toast("Hidden again.")
+                elif track_data.get("can_reveal"):  # still masked -> reveal as a peek
+                    peek_reveal_row(track_data)
+                    track_rv.refresh_from_data()
+                    app.show_toast("Revealed the playing track (peek).")
+                else:
+                    app.show_toast("Track is already revealed.")
                 return
         app.show_toast("Playing track isn't in this list.")
 
@@ -1221,6 +1233,7 @@ class RootLayout(BoxLayout):
                     track_updated = True
                 # A finished track always shows its real metadata, even in hidden mode.
                 self._unmask_track_row(track_data)
+                clear_peek_state(track_data)  # properly revealed -> a peek-toggle must not re-hide
                 track_data["can_reveal"] = False  # finished -> no Reveal button
                 track_data["can_guess"] = False  # finished -> no Guess button
                 track_rv.refresh_from_data()
