@@ -297,14 +297,15 @@ class AbstractClientHost(EventDispatcher, ABC):
         """
         pass
 
-    def on_trap_received(self, name: str):
+    def on_trap_received(self, name: str) -> bool:
         """
-        Called once when a trap item is received (the app shows a generic modal regardless).
-        Optional hook: override to add a backend-specific effect (e.g. force-play a random
-        library track). Must always auto-resolve — never permanently block playback or an AP
-        location (see the trap-safety/softlock rules in ROADMAP A1).
+        Called once when a trap item is received. Return ``True`` if this host consumed the
+        trap with a backend-specific effect (e.g. force-play a Shuffle Trap), in which case the
+        app suppresses the generic reference modal; return ``False`` to let the app show it.
+        Optional hook: override to add an effect. Must always auto-resolve — never permanently
+        block playback or an AP location (see the trap-safety/softlock rules in ROADMAP A1).
         """
-        pass
+        return False
 
     @abstractmethod
     def get_settings_ui(self) -> BoxLayout | None:

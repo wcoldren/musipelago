@@ -758,6 +758,38 @@ class RootLayout(BoxLayout):
             )
         )
 
+        # App-level: Shuffle Trap intensity — how many already-played tracks a Shuffle Trap
+        # force-replays before resuming. Small integer field (clamped 1–10), persisted.
+        trap_row = BoxLayout(
+            orientation="horizontal", size_hint_y=None, height="48dp", spacing="8dp"
+        )
+        trap_row.add_widget(
+            Label(text="Shuffle Trap: tracks to replay", halign="left", valign="middle")
+        )
+        trap_input = TextInput(
+            text=str(app.shuffle_trap_count),
+            input_filter="int",
+            multiline=False,
+            size_hint_x=None,
+            width="60dp",
+        )
+
+        def _on_trap_count(widget, value):
+            self.set_shuffle_trap_count(value)
+
+        trap_input.bind(text=_on_trap_count)
+        trap_row.add_widget(trap_input)
+        panel.add_widget(trap_row)
+        panel.add_widget(
+            Label(
+                text="When a Shuffle Trap hits, it replays this many tracks you've already finished, then resumes.",
+                size_hint_y=None,
+                height="30dp",
+                halign="left",
+                valign="middle",
+            )
+        )
+
         # Plugin-specific settings, if the backend provides any.
         plugin_ui = app.client_host_ui.get_settings_ui()
         if plugin_ui:
@@ -807,6 +839,21 @@ class RootLayout(BoxLayout):
         app._save_client_settings()
         self._refresh_lists()
         app.show_toast(f"Guess mode {'ON' if active else 'OFF'}")
+
+    def set_shuffle_trap_count(self, value):
+        """Set how many already-played tracks a Shuffle Trap replays (clamped 1–10), persist it.
+
+        Tolerant of an empty/garbage field mid-edit (keeps the prior value, no save)."""
+        app = App.get_running_app()
+        try:
+            n = int(str(value).strip())
+        except (TypeError, ValueError):
+            return
+        n = max(1, min(10, n))
+        if n == app.shuffle_trap_count:
+            return
+        app.shuffle_trap_count = n
+        app._save_client_settings()
 
     # --- UI-Only Methods (Remain in RootLayout) ---
     def populate_track_list(self, container_uri, local_image_path=None):
@@ -1704,6 +1751,7 @@ class MusipelagoClientApp(App):
         self.json_path = None
         self.hidden_metadata = False  # "unknown song" practice mode (client-side toggle)
         self.guess_mode = False  # earn a track's check by correctly naming it (client-side toggle)
+        self.shuffle_trap_count = 1  # how many already-played tracks a Shuffle Trap replays
         self.traps_enabled = False  # set from slot_data on connect
         self._trap_modal_queue = []  # pending trap effects, shown one at a time
         self._trap_modal_open = False
@@ -1747,6 +1795,7 @@ class MusipelagoClientApp(App):
                 cs = self.store.get("client_settings")
                 self.hidden_metadata = bool(cs.get("hidden_metadata", False))
                 self.guess_mode = bool(cs.get("guess_mode", False))
+                self.shuffle_trap_count = max(1, int(cs.get("shuffle_trap_count", 1)))
         except Exception as e:
             Logger.warning(f"Cache: Could not load client settings: {e}")
 
@@ -1909,22 +1958,24 @@ class MusipelagoClientApp(App):
     def trigger_trap(self, name):
         """Entry point for a received trap (called on the UI thread by the AP client).
 
-        Shows the reference effect — a dismissable modal — serialized one-at-a-time so a
-        backlog of pending traps doesn't stack modals, and notifies the active backend host
-        so it can layer a backend-specific effect (force-play, etc.) later. The concrete
-        effects (Shuffle / Speed / Re-mask …) are tracked in ROADMAP A1; this dispatch is the
-        once-only plumbing they slot into."""
-        # Backend extension point (no-op by default). Kept separate from the modal so a host
-        # can react even if the modal is parked.
+        Gives the active backend host first crack at a backend-specific effect (e.g. the
+        Shuffle Trap force-replay); if the host consumes the trap (returns True) no modal is
+        shown. Otherwise falls back to the reference effect — a dismissable modal — serialized
+        one-at-a-time so a backlog of pending traps doesn't stack modals. The once-only cursor
+        (upstream in the AP client) guarantees each trap reaches here exactly once."""
+        # Backend extension point: a host can consume the trap with its own effect and suppress
+        # the modal. Default hosts return False -> the reference modal still shows.
+        handled = False
         host = getattr(self, "client_host_ui", None)
         if host is not None:
             try:
-                host.on_trap_received(name)
+                handled = bool(host.on_trap_received(name))
             except Exception as e:
                 Logger.warning(f"Trap: host.on_trap_received failed: {e}")
 
-        self._trap_modal_queue.append(name)
-        self._show_next_trap_modal()
+        if not handled:
+            self._trap_modal_queue.append(name)
+            self._show_next_trap_modal()
 
     def _show_next_trap_modal(self):
         if self._trap_modal_open or not self._trap_modal_queue:
@@ -2104,6 +2155,7 @@ class MusipelagoClientApp(App):
                 "client_settings",
                 hidden_metadata=bool(self.hidden_metadata),
                 guess_mode=bool(self.guess_mode),
+                shuffle_trap_count=int(self.shuffle_trap_count),
             )
         except Exception as e:
             Logger.warning(f"Cache: Could not save client settings: {e}")
