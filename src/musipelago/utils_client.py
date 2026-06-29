@@ -129,6 +129,20 @@ def pick_shuffle_tracks(pool, n, rng):
     return rng.sample(list(pool), min(n, len(pool)))
 
 
+# --- Track origin (pure; a Mixtape track's real album name + cover) ---
+def now_playing_album(track):
+    """The album label to show for ``track``: its real source album if it was regrouped into a
+    Mixtape, else its own ``album_title``. ``track`` is any object with those attrs. Pure."""
+    return getattr(track, "source_album", "") or getattr(track, "album_title", "") or ""
+
+
+def resolve_track_art(track, container_art):
+    """Best art for ``track``: its origin album cover (set on Mixtape tracks) if present, else
+    the container album's art, else the generic placeholder. ``container_art`` is the displayed
+    album's image. Pure (no Kivy)."""
+    return getattr(track, "source_image_url", "") or container_art or KIVY_ICON
+
+
 # --- Now-playing highlight (pure; flag the active row for blue coloring) ---
 def mark_active_rows(rows, active_uri):
     """Set ``is_playing_now`` True on the row whose ``raw_uri`` matches ``active_uri``, False on

@@ -111,6 +111,7 @@ from musipelago.utils_client import (
     peek_rehide_row,
     peek_reveal_row,
     printjson_markup,
+    resolve_track_art,
     unmask_row,
 )
 from musipelago.vlc_audio_player import GenericAudioPlayer
@@ -1030,12 +1031,15 @@ class RootLayout(BoxLayout):
                 disp_line3 = (text_line_3 if has_hint_bool else "???") if hidden else text_line_3
                 # The cover art would also give the answer away, so mask it too; keep the real
                 # value in raw_image_source for reveal/finish (mirrors raw_title/raw_artist).
-                real_art = (
+                container_art = (
                     local_image_path
                     or container_data.display_image_url
                     or container_data.image_url
                     or KIVY_ICON
                 )
+                # Prefer the track's ORIGIN album cover (set on Mixtape tracks) so each song shows
+                # the album it came from, not the mixtape collage; falls back to the container art.
+                real_art = resolve_track_art(track, container_art)
 
                 item_data = {
                     "text_line_1": disp_title,

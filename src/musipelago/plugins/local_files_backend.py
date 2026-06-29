@@ -54,7 +54,9 @@ from musipelago.utils_client import (
     build_continuation_queue,
     eligible_shuffle_tracks,
     eligible_skip_tracks,
+    now_playing_album,
     pick_shuffle_tracks,
+    resolve_track_art,
     seek_trap_target,
 )
 
@@ -1397,8 +1399,12 @@ class LocalFilesClientHost(AbstractClientHost):
             hidden = getattr(self.app, "hidden_metadata", False) and not is_finished
             parent_album = self.app.album_data_cache.get(parent)
             real_title = title
-            real_artist_album = f"{track_obj.artist} - {track_obj.album_title}"
-            real_art = (parent_album.image_url if parent_album else None) or KIVY_ICON
+            # Show the track's REAL album (source) when it was regrouped into a Mixtape, with the
+            # origin album's cover — falling back to the container album for non-mixtape builds.
+            real_artist_album = f"{track_obj.artist} - {now_playing_album(track_obj)}"
+            real_art = resolve_track_art(
+                track_obj, parent_album.image_url if parent_album else None
+            )
             # Always stash the real values so the D5 peek can reveal the now-playing bar even
             # while hidden mode shows placeholders.
             self.playback_info_widget.raw_title = real_title
