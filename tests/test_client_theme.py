@@ -55,3 +55,11 @@ def test_apply_theme_is_case_insensitive(monkeypatch):
     app.apply_theme("LIGHT", persist=False)
     assert app.theme_name == "light"
     assert app.col_bg == theme.LIGHT["bg"]
+
+
+def test_light_text_dim_is_dark_enough_to_read():
+    # Secondary text uses col_text_dim; it must be clearly darker than the light bg.
+    r, g, b, _ = theme.LIGHT["text_dim"]
+    assert max(r, g, b) <= 0.30  # darkened from the old faint 0.38
+    # And still distinct from the primary text (not collapsed to col_text).
+    assert theme.LIGHT["text_dim"] != theme.LIGHT["text"]

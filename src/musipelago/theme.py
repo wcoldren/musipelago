@@ -33,7 +33,7 @@ LIGHT = {
     "card": (1.00, 1.00, 1.00, 1),
     "accent": (0.20, 0.50, 0.85, 1),
     "text": (0.10, 0.10, 0.12, 1),
-    "text_dim": (0.38, 0.38, 0.42, 1),
+    "text_dim": (0.26, 0.26, 0.30, 1),  # darkened: 0.38 was too faint on the light bg
     "border": (0.80, 0.80, 0.84, 1),
 }
 
