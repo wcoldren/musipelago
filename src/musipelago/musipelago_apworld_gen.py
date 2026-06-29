@@ -291,12 +291,52 @@ class LoginPopup(Popup):
             self.dismiss()
 
 
-def _chunk(tracks, mode, count):
+def _balanced_grid(tracks, packs, size, target_ms=None):
+    """Fixed `packs` x `size` grid with duration-balanced assignment (A5b).
+
+    The track pool is pre-shuffled by build_meta_albums, so the first `need = packs*size` tracks
+    are a seeded random sample (the user chose random selection over biasing which songs are
+    picked). We then distribute those tracks into bins of capacity `size`, longest-first (LPT):
+    each track lands in the eligible (not-yet-full) bin that keeps the layout most even — the
+    currently-lightest bin, or with `target_ms` the bin whose total stays closest to the target.
+    This clusters pack run-times tightly around the draw's natural mean instead of the lumpy
+    near-equal split the 'packs'/'per_pack' modes produce.
+
+    Grid stays exact when the pool is large enough (pool >= packs*size -> exactly that grid;
+    extra tracks are dropped). With too few tracks it keeps `size` and makes ceil(pool/size)
+    packs of <= size (fewer than `packs`, never empty). Pure (no Kivy)."""
+    packs = max(1, int(packs))
+    size = max(1, int(size or 1))
+    need = min(packs * size, len(tracks))
+    if need <= 0:
+        return [tracks] if tracks else []
+    drawn = tracks[:need]
+    bins_n = min(packs, (need + size - 1) // size)  # ceil(need/size), capped at `packs`
+    bins = [[] for _ in range(bins_n)]
+    sums = [0] * bins_n
+    for t in sorted(drawn, key=lambda x: getattr(x, "duration_ms", 0) or 0, reverse=True):
+        d = getattr(t, "duration_ms", 0) or 0
+        best, best_key = None, None
+        for b in range(bins_n):
+            if len(bins[b]) >= size:  # respect the capacity-M cap
+                continue
+            key = abs(sums[b] + d - target_ms) if target_ms else sums[b]
+            if best is None or key < best_key:
+                best, best_key = b, key
+        bins[best].append(t)
+        sums[best] += d
+    return [b for b in bins if b]
+
+
+def _chunk(tracks, mode, count, *, size=None, target_ms=None):
     """Split `tracks` into groups. mode='per_pack' -> groups of ~count tracks;
     mode='packs' -> `count` near-equal groups (never empty when count <= len);
     mode='minutes' -> greedily fill packs to ~`count` minutes each (each track
-    lands in whichever boundary leaves the pack closest to the target length)."""
+    lands in whichever boundary leaves the pack closest to the target length);
+    mode='grid' -> `count` packs of `size` tracks, duration-balanced (_balanced_grid)."""
     count = max(1, int(count))
+    if mode == "grid":
+        return _balanced_grid(tracks, packs=count, size=size, target_ms=target_ms)
     if mode == "per_pack":
         return [tracks[i : i + count] for i in range(0, len(tracks), count)]
     if mode == "minutes":
@@ -330,7 +370,17 @@ def _chunk(tracks, mode, count):
     return groups
 
 
-def build_meta_albums(albums, *, mode, count, seed=None, subset=None, shuffle=True):
+def build_meta_albums(
+    albums,
+    *,
+    mode,
+    count,
+    seed=None,
+    subset=None,
+    shuffle=True,
+    pack_size=None,
+    target_minutes=None,
+):
     """Regroup the (already curated) tracks across `albums` into synthetic
     "Mixtape" meta-albums at generate time. This is a pure function of its
     inputs: it returns a fresh list of GenericAlbum objects and never mutates
@@ -351,7 +401,11 @@ def build_meta_albums(albums, *, mode, count, seed=None, subset=None, shuffle=Tr
       size truncates after shuffling, so with `shuffle` on this is a seeded
       random sample of K tracks; with `shuffle` off it's the first K in catalog
       order. None/0/>= pool size keeps every track. Fewer tracks => fewer AP
-      locations, baked into the generated `.apworld`.
+      locations, baked into the generated `.apworld`. Ignored in 'grid' mode
+      (the grid's count*pack_size defines the track count).
+    - `pack_size`/`target_minutes` ('grid' mode only): exact `count` packs of
+      `pack_size` songs each, duration-balanced toward an optional soft
+      `target_minutes` per pack (see _balanced_grid).
     """
     rng = random.Random(seed) if seed is not None else random.Random()
     tracks = [t for album in albums for t in album.tracks]
@@ -359,9 +413,12 @@ def build_meta_albums(albums, *, mode, count, seed=None, subset=None, shuffle=Tr
         return albums
     if shuffle:
         rng.shuffle(tracks)
-    if subset and 0 < int(subset) < len(tracks):
+    # 'grid' derives its own track count (count*pack_size) inside _balanced_grid;
+    # the global subset cap only applies to the other modes.
+    if mode != "grid" and subset and 0 < int(subset) < len(tracks):
         tracks = tracks[: int(subset)]
-    groups = _chunk(tracks, mode, count)
+    target_ms = target_minutes * 60 * 1000 if target_minutes else None
+    groups = _chunk(tracks, mode, count, size=pack_size, target_ms=target_ms)
     service = albums[0].service if albums else "local"
     metas = []
     for i, group in enumerate(groups, start=1):
@@ -449,6 +506,7 @@ class GeneratePopup(Popup):
             "N packs": "packs",
             "Tracks per pack": "per_pack",
             "Minutes per pack": "minutes",
+            "Balanced grid": "grid",
         }.get(ids.meta_mode.text, "packs")
         try:
             count = int(ids.meta_count.text)
@@ -462,6 +520,16 @@ class GeneratePopup(Popup):
         except ValueError:
             subset = None
         shuffle = ids.meta_shuffle.state == "down" if "meta_shuffle" in ids else True
+        # 'Balanced grid' (mode='grid') extras: songs-per-pack (M) + optional target min/pack.
+        try:
+            pack_size = int(ids.meta_pack_size.text) if "meta_pack_size" in ids else None
+        except (ValueError, AttributeError):
+            pack_size = None
+        target_text = (ids.meta_target_min.text or "").strip() if "meta_target_min" in ids else ""
+        try:
+            target_minutes = int(target_text) if target_text else None
+        except ValueError:
+            target_minutes = None
         return {
             "enabled": True,
             "mode": mode,
@@ -469,6 +537,8 @@ class GeneratePopup(Popup):
             "seed": seed,
             "subset": subset,
             "shuffle": shuffle,
+            "pack_size": pack_size,
+            "target_minutes": target_minutes,
         }
 
     def generate_files(self, apworld_name, meta_config=None):
@@ -527,6 +597,8 @@ class GeneratePopup(Popup):
                     seed=meta_config.get("seed"),
                     subset=meta_config.get("subset"),
                     shuffle=meta_config.get("shuffle", True),
+                    pack_size=meta_config.get("pack_size"),
+                    target_minutes=meta_config.get("target_minutes"),
                 )
                 total = sum(len(a.tracks) for a in self.apworld_data)
                 used = sum(len(a.tracks) for a in effective_data)

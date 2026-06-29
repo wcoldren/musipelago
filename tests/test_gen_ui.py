@@ -293,7 +293,48 @@ def test_read_meta_config_reads_toggle_states():
         "seed": None,
         "subset": 8,
         "shuffle": False,
+        "pack_size": None,  # grid-only fields absent -> None
+        "target_minutes": None,
     }
+
+
+def test_read_meta_config_reads_balanced_grid():
+    p = _meta_popup(
+        meta_enable=types.SimpleNamespace(state="down"),
+        meta_mode=types.SimpleNamespace(text="Balanced grid"),
+        meta_count=types.SimpleNamespace(text="10"),
+        meta_seed=types.SimpleNamespace(text="3"),
+        meta_subset=types.SimpleNamespace(text=""),
+        meta_shuffle=types.SimpleNamespace(state="down"),
+        meta_pack_size=types.SimpleNamespace(text="5"),
+        meta_target_min=types.SimpleNamespace(text="20"),
+    )
+    cfg = p._read_meta_config()
+    assert cfg == {
+        "enabled": True,
+        "mode": "grid",
+        "count": 10,
+        "seed": 3,
+        "subset": None,
+        "shuffle": True,
+        "pack_size": 5,
+        "target_minutes": 20,
+    }
+
+
+def test_read_meta_config_grid_blank_target_is_none():
+    p = _meta_popup(
+        meta_enable=types.SimpleNamespace(state="down"),
+        meta_mode=types.SimpleNamespace(text="Balanced grid"),
+        meta_count=types.SimpleNamespace(text="10"),
+        meta_seed=types.SimpleNamespace(text=""),
+        meta_subset=types.SimpleNamespace(text=""),
+        meta_shuffle=types.SimpleNamespace(state="down"),
+        meta_pack_size=types.SimpleNamespace(text="5"),
+        meta_target_min=types.SimpleNamespace(text=""),
+    )
+    cfg = p._read_meta_config()
+    assert cfg["mode"] == "grid" and cfg["pack_size"] == 5 and cfg["target_minutes"] is None
 
 
 # --- starter YAML + output_root -------------------------------------------

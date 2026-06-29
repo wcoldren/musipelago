@@ -346,7 +346,7 @@
             Spinner:
                 id: meta_mode
                 text: 'N packs'
-                values: ['N packs', 'Tracks per pack', 'Minutes per pack']
+                values: ['N packs', 'Tracks per pack', 'Minutes per pack', 'Balanced grid']
                 size_hint_x: 0.45
 
             Label:
@@ -364,6 +364,48 @@
                 multiline: False
                 write_tab: False
                 size_hint_x: 0.2
+
+        # 'Balanced grid' extras: songs-per-pack (M) + optional target min/pack.
+        # Collapses (height 0, hidden) unless Balanced grid is selected.
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint_y: None
+            height: '40dp' if meta_mode.text == 'Balanced grid' else '0dp'
+            opacity: 1 if (meta_enable.state == 'down' and meta_mode.text == 'Balanced grid') else 0
+            disabled: meta_enable.state != 'down' or meta_mode.text != 'Balanced grid'
+            spacing: '8dp'
+
+            Label:
+                text: 'Songs per pack'
+                size_hint_x: None
+                width: '110dp'
+                halign: 'right'
+                valign: 'middle'
+                text_size: self.size
+
+            TextInput:
+                id: meta_pack_size
+                text: '5'
+                input_filter: 'int'
+                multiline: False
+                write_tab: False
+                size_hint_x: 0.16
+
+            Label:
+                text: 'Target min/pack'
+                size_hint_x: None
+                width: '120dp'
+                halign: 'right'
+                valign: 'middle'
+                text_size: self.size
+
+            TextInput:
+                id: meta_target_min
+                hint_text: 'auto'
+                input_filter: 'int'
+                multiline: False
+                write_tab: False
+                size_hint_x: 0.16
 
         BoxLayout:
             orientation: 'horizontal'

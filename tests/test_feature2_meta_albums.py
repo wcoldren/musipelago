@@ -195,3 +195,106 @@ def test_minutes_mode_zero_duration_falls_back_to_single_pack():
     src = [_timed_album("nodur", 5, 0)]
     metas = g.build_meta_albums(src, mode="minutes", count=10)
     assert sum(len(m.tracks) for m in metas) == 5  # no crash, nothing lost
+
+
+# --- Balanced grid mode (A5b): exact N packs x M songs, duration-balanced ---
+def _varied_album(uri, durations):
+    """An album whose track i has duration durations[i] (ms)."""
+    tracks = [
+        GenericTrack(
+            uri=f"{uri}/{i}",
+            title=f"t{i}",
+            artist="A",
+            album_title="orig",
+            duration_ms=d,
+            service="local",
+        )
+        for i, d in enumerate(durations)
+    ]
+    return GenericAlbum(
+        uri=uri,
+        title=uri,
+        artist="A",
+        image_url="",
+        total_tracks=len(tracks),
+        album_type="Album",
+        service="local",
+        tracks=tracks,
+    )
+
+
+def _pack_sums(metas):
+    return [sum(t.duration_ms for t in m.tracks) for m in metas]
+
+
+def _grid_partition_ok(metas, expect_packs, expect_size):
+    assert len(metas) == expect_packs
+    assert all(len(m.tracks) == expect_size for m in metas)
+    uris = [t.uri for m in metas for t in m.tracks]
+    assert len(uris) == len(set(uris))  # no track duplicated across packs
+    keys = [m.uri for m in metas]
+    assert len(keys) == len(set(keys))  # unique meta identities
+
+
+def test_grid_mode_exact_10x5():
+    src = [_timed_album("g", 50, 4 * 60 * 1000)]  # exactly 50 tracks
+    metas = g.build_meta_albums(src, mode="grid", count=10, pack_size=5, seed=1)
+    _grid_partition_ok(metas, expect_packs=10, expect_size=5)
+
+
+def test_grid_balances_better_than_sequential_split():
+    # Highly variable durations (1..50 minutes) -> a naive consecutive split is
+    # lumpy; the LPT grid packer should produce a much tighter per-pack spread.
+    durations = [(i + 1) * 60 * 1000 for i in range(50)]
+    src = [_varied_album("v", durations)]
+    grid = g.build_meta_albums(src, mode="grid", count=10, pack_size=5, seed=7)
+    seq = g.build_meta_albums(src, mode="per_pack", count=5, seed=7)  # same seeded shuffle
+    grid_spread = max(_pack_sums(grid)) - min(_pack_sums(grid))
+    seq_spread = max(_pack_sums(seq)) - min(_pack_sums(seq))
+    assert grid_spread < seq_spread
+    _grid_partition_ok(grid, expect_packs=10, expect_size=5)
+
+
+def test_grid_soft_target_uniform_hits_target():
+    # 50 tracks x 4 min, 5 per pack, target 20 -> every pack lands exactly on 20 min.
+    src = [_timed_album("g", 50, 4 * 60 * 1000)]
+    metas = g.build_meta_albums(src, mode="grid", count=10, pack_size=5, target_minutes=20, seed=2)
+    assert all(s == 20 * 60 * 1000 for s in _pack_sums(metas))
+
+
+def test_grid_pool_smaller_keeps_size_fewer_packs():
+    src = [_timed_album("g", 23, 60 * 1000)]  # 23 < 10*5
+    metas = g.build_meta_albums(src, mode="grid", count=10, pack_size=5, seed=1)
+    assert len(metas) == 5  # ceil(23/5)
+    assert all(len(m.tracks) <= 5 for m in metas)
+    assert sum(len(m.tracks) for m in metas) == 23  # nothing lost, none empty
+    assert all(len(m.tracks) > 0 for m in metas)
+
+
+def test_grid_pool_larger_drops_extras():
+    src = [_timed_album("g", 60, 60 * 1000)]  # 60 > 10*5
+    metas = g.build_meta_albums(src, mode="grid", count=10, pack_size=5, seed=1)
+    _grid_partition_ok(metas, expect_packs=10, expect_size=5)  # exactly 50 used, 10 dropped
+
+
+def test_grid_ignores_subset():
+    src = [_timed_album("g", 60, 60 * 1000)]
+    metas = g.build_meta_albums(src, mode="grid", count=10, pack_size=5, subset=12, seed=1)
+    assert sum(len(m.tracks) for m in metas) == 50  # subset=12 ignored; N*M wins
+
+
+def test_grid_seed_reproducible():
+    src = [_timed_album("g", 60, 60 * 1000)]
+    a = g.build_meta_albums(src, mode="grid", count=10, pack_size=5, seed=42)
+    b = g.build_meta_albums(src, mode="grid", count=10, pack_size=5, seed=42)
+    c = g.build_meta_albums(src, mode="grid", count=10, pack_size=5, seed=99)
+
+    def layout(metas):
+        return [sorted(t.uri for t in m.tracks) for m in metas]
+
+    assert layout(a) == layout(b)  # same seed -> identical
+    assert layout(a) != layout(c)  # different seed -> different draw/layout
+
+
+def test_grid_empty_pool_returns_source():
+    assert g.build_meta_albums([], mode="grid", count=10, pack_size=5) == []
