@@ -13,6 +13,7 @@ from kivy.config import Config
 from kivy.logger import Logger
 
 # --- KIVY IMPORTS ---
+from musipelago import theme
 from musipelago.utils import resource_path
 
 try:
@@ -68,6 +69,7 @@ from kivy.core.window import Window
 from kivy.metrics import dp
 from kivy.properties import (
     BooleanProperty,
+    ColorProperty,
     ListProperty,
     NumericProperty,
     ObjectProperty,
@@ -830,6 +832,22 @@ class RootLayout(BoxLayout):
                 valign="middle",
             )
         )
+
+        # App-level: theme (B2) — swap the client's color palette live.
+        theme_btn = ToggleButton(
+            text=f"Theme: {'Light' if app.theme_name == 'light' else 'Dark'}",
+            state="down" if app.theme_name == "light" else "normal",
+            size_hint_y=None,
+            height="48dp",
+        )
+
+        def _on_theme_toggle(btn):
+            name = "light" if btn.state == "down" else "dark"
+            btn.text = f"Theme: {name.capitalize()}"
+            app.apply_theme(name)
+
+        theme_btn.bind(on_release=_on_theme_toggle)
+        panel.add_widget(theme_btn)
 
         # Plugin-specific settings, if the backend provides any.
         plugin_ui = app.client_host_ui.get_settings_ui()
@@ -1775,6 +1793,30 @@ class MusipelagoClientApp(App):
     game_data = ObjectProperty(None)
     backend_data = ObjectProperty(None)
 
+    # --- Theme (B2): live palette the kv binds to via app.col_* ---
+    theme_name = StringProperty("dark")
+    col_bg = ColorProperty(theme.DARK["bg"])
+    col_surface = ColorProperty(theme.DARK["surface"])
+    col_card = ColorProperty(theme.DARK["card"])
+    col_accent = ColorProperty(theme.DARK["accent"])
+    col_text = ColorProperty(theme.DARK["text"])
+    col_text_dim = ColorProperty(theme.DARK["text_dim"])
+    col_border = ColorProperty(theme.DARK["border"])
+
+    def apply_theme(self, name, persist=True):
+        """Swap the live color palette (and optionally persist the choice).
+
+        Mirrors the gen app's apply_theme; persists through the shared client_settings store."""
+        name = str(name).lower()
+        if name not in theme.PALETTES:
+            name = "dark"
+        pal = theme.get_palette(name)
+        self.theme_name = name
+        for key in theme.KEYS:
+            setattr(self, f"col_{key}", pal[key])
+        if persist:
+            self._save_client_settings()
+
     def build(self):
         self.apworld_map = {}
         self.album_data_cache = {}
@@ -1838,8 +1880,12 @@ class MusipelagoClientApp(App):
                 self.guess_mode = bool(cs.get("guess_mode", False))
                 self.shuffle_trap_count = max(1, int(cs.get("shuffle_trap_count", 1)))
                 self.log_panel_open = bool(cs.get("log_panel_open", True))
+                self.theme_name = str(cs.get("theme_name", "dark"))
         except Exception as e:
             Logger.warning(f"Cache: Could not load client settings: {e}")
+
+        # Apply the restored theme before building the UI (no re-persist).
+        self.apply_theme(self.theme_name, persist=False)
 
         self.audio_player = GenericAudioPlayer(
             on_finish_callback=self.on_playback_finished_callback
@@ -2199,6 +2245,7 @@ class MusipelagoClientApp(App):
                 guess_mode=bool(self.guess_mode),
                 shuffle_trap_count=int(self.shuffle_trap_count),
                 log_panel_open=bool(self.log_panel_open),
+                theme_name=str(self.theme_name),
             )
         except Exception as e:
             Logger.warning(f"Cache: Could not save client settings: {e}")
