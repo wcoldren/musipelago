@@ -26,7 +26,7 @@
 
             canvas.before:
                 Color:
-                    rgba: 0.12, 0.12, 0.12, 1
+                    rgba: app.col_bg
                 Rectangle:
                     pos: self.pos
                     size: self.size
@@ -122,7 +122,7 @@
             height: '30dp'
             canvas.before:
                 Color:
-                    rgba: 0.1, 0.1, 0.1, 1
+                    rgba: app.col_surface
                 Rectangle:
                     pos: self.pos
                     size: self.size
@@ -134,7 +134,7 @@
             height: '30dp'
             canvas.before:
                 Color:
-                    rgba: 0.1, 0.1, 0.15, 1
+                    rgba: app.col_surface
                 Rectangle:
                     pos: self.pos
                     size: self.size
@@ -152,7 +152,7 @@
 
         canvas.before:
             Color:
-                rgba: 0.1, 0.1, 0.13, 1
+                rgba: app.col_surface
             Rectangle:
                 pos: self.pos
                 size: self.size
@@ -206,7 +206,7 @@
     padding: dp(4), dp(2)
     # Per-part AP coloring is baked into the text as Kivy markup (see printjson_markup).
     markup: True
-    color: 0.9, 0.9, 0.9, 1  # default for uncolored (plain server) text
+    color: app.col_text  # default for uncolored (plain server) text
 
 <GenericPlaybackInfo>:
     orientation: 'horizontal'
@@ -237,7 +237,7 @@
         Label:
             text: root.artist_album
             font_size: '12sp'
-            color: 0.7, 0.7, 0.7, 1
+            color: app.col_text_dim
             shorten: True
             shorten_from: 'right'
             text_size: self.width, None
@@ -284,7 +284,7 @@
 
         canvas.before:
             Color:
-                rgba: 0.15, 0.15, 0.15, 1
+                rgba: app.col_surface
             Rectangle:
                 pos: self.pos
                 size: self.size
@@ -303,7 +303,7 @@
 
         canvas.before:
             Color:
-                rgba: 0.15, 0.15, 0.15, 1
+                rgba: app.col_surface
             Rectangle:
                 pos: self.pos
                 size: self.size
@@ -357,7 +357,7 @@
         Label:
             text: root.text_line_3 if root.is_owned else 'Locked'
             font_size: '12sp'
-            color: 0.8, 0.8, 0.8, 1
+            color: app.col_text_dim
             text_size: self.width, None
             shorten: True
             shorten_from: 'right'
@@ -367,7 +367,7 @@
         Label:
             text: root.text_line_4 if root.is_owned else ''
             font_size: '12sp'
-            color: 0.8, 0.8, 0.8, 1
+            color: app.col_text_dim
             text_size: self.width, None
             shorten: True
             shorten_from: 'right'
