@@ -156,32 +156,93 @@ def compose_printjson_text(data_parts, resolve):
     return message_text
 
 
-# AP PrintJSON packet "type" -> feed "kind" (drives the row text color). Unlisted/None
-# types (plain server text) fall through to "server".
-_PRINTJSON_KIND = {
-    "ItemSend": "item",
-    "ItemCheat": "item",
-    "Hint": "hint",
-    "Chat": "chat",
-    "ServerChat": "chat",
-    "Join": "join",
-    "Part": "join",
-    "TagsChanged": "join",
-    "Goal": "goal",
-    "Release": "goal",
-    "Collect": "goal",
+# AP's GUI color scheme (hex), copied from Archipelago's NetUtils.JSONtoTextParser so the
+# feed matches what its own clients show.
+AP_COLOR_CODES = {
+    "black": "000000",
+    "red": "EE0000",
+    "green": "00FF7F",
+    "yellow": "FAFAD2",
+    "blue": "6495ED",
+    "magenta": "EE00EE",
+    "cyan": "00EEEE",
+    "slateblue": "6D8BE8",
+    "plum": "AF99EF",
+    "salmon": "FA8072",
+    "white": "FFFFFF",
+    "orange": "FF7700",
 }
 
 
-def printjson_kind(packet_type):
-    """Map an AP ``PrintJSON`` packet ``type`` to a feed ``kind`` for color coding."""
-    return _PRINTJSON_KIND.get(packet_type, "server")
+def _escape_kivy_markup(text):
+    """Escape Kivy markup metacharacters so literal brackets in item/track names
+    (e.g. ``[Radio Edit]``) aren't parsed as tags. Mirrors ``kivy.utils.escape_markup``
+    but kept dependency-free so it tests headlessly."""
+    return str(text).replace("&", "&amp;").replace("[", "&bl;").replace("]", "&br;")
 
 
-def make_log_entry(text, kind="server"):
-    """A RecycleView row dict for the message feed. ``kind`` (``server`` / ``item`` /
-    ``hint`` / ``chat`` / ``join`` / ``goal``) drives the row's text color."""
-    return {"text": text, "kind": kind}
+def _item_flag_color(flags):
+    """AP item color by classification flags (progression / useful / trap / filler)."""
+    if flags & 0b001:  # advancement / progression
+        return "plum"
+    if flags & 0b010:  # useful
+        return "slateblue"
+    if flags & 0b100:  # trap
+        return "salmon"
+    return "cyan"  # filler / no flags
+
+
+def _part_color_name(part, self_slot):
+    """AP color name for one PrintJSON part, or ``None`` for uncolored plain text.
+    Mirrors NetUtils.JSONtoTextParser's per-type handlers."""
+    ptype = part.get("type")
+    if ptype in ("item_id", "item_name"):
+        return _item_flag_color(part.get("flags", 0) or 0)
+    if ptype == "player_id":
+        try:
+            return "magenta" if int(part.get("text")) == self_slot else "yellow"
+        except (TypeError, ValueError):
+            return "yellow"
+    if ptype == "player_name":
+        return "yellow"
+    if ptype in ("location_id", "location_name"):
+        return "green"
+    if ptype == "entrance_name":
+        return "blue"
+    if ptype == "color":
+        return part.get("color")
+    return None
+
+
+def printjson_markup(data_parts, resolve, self_slot=None):
+    """Compose a Kivy-markup string from a PrintJSON ``data`` parts list, coloring each
+    part the way Archipelago's own clients do: items by progression/useful/trap/filler,
+    player names (your own magenta vs others' yellow via ``self_slot``), locations green,
+    entrances blue. ``resolve(part_type, text, part)`` resolves the ``*_id`` parts to names
+    (the same resolver ``compose_printjson_text`` uses). Pure (no Kivy) so it tests
+    headlessly."""
+    out = []
+    for part in data_parts:
+        if not isinstance(part, dict):
+            continue
+        text = part.get("text", "")
+        part_type = part.get("type")
+        try:
+            if part_type in ("player_id", "item_id", "location_id"):
+                text = resolve(part_type, text, part)
+        except Exception:
+            text = part.get("text", "")
+        escaped = _escape_kivy_markup(text)
+        color = _part_color_name(part, self_slot)
+        hexcode = AP_COLOR_CODES.get(color) if color else None
+        out.append(f"[color={hexcode}]{escaped}[/color]" if hexcode else escaped)
+    return "".join(out)
+
+
+def make_log_entry(text):
+    """A RecycleView row dict for the message feed. ``text`` is Kivy-markup (per-part
+    AP coloring), rendered by a ``markup: True`` label."""
+    return {"text": text}
 
 
 def append_capped(entries, entry, cap=200):

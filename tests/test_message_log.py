@@ -2,16 +2,17 @@
 
 The feed's core logic lives in ``utils_client`` (pure, no VLC/Kivy-window deps) so it
 runs in CI without libvlc. ``compose_printjson_text`` turns an AP ``PrintJSON`` packet's
-``data`` parts into one display string (the same logic that previously lived inline in
-the client's PrintJSON handler); ``make_log_entry`` / ``append_capped`` back the bounded
-scrolling feed.
+``data`` parts into one plain display string (for the status bar); ``printjson_markup``
+builds the AP-colored Kivy markup for the feed; ``make_log_entry`` / ``append_capped``
+back the bounded scrolling feed.
 """
 
 from musipelago.utils_client import (
+    AP_COLOR_CODES,
     append_capped,
     compose_printjson_text,
     make_log_entry,
-    printjson_kind,
+    printjson_markup,
 )
 
 
@@ -61,28 +62,62 @@ def test_empty_parts_give_empty_string():
     assert compose_printjson_text([], _resolve) == ""
 
 
-# --- printjson_kind ---
-def test_printjson_kind_maps_known_types():
-    assert printjson_kind("ItemSend") == "item"
-    assert printjson_kind("Hint") == "hint"
-    assert printjson_kind("Chat") == "chat"
-    assert printjson_kind("ServerChat") == "chat"
-    assert printjson_kind("Join") == "join"
-    assert printjson_kind("Goal") == "goal"
+# --- printjson_markup (AP per-part coloring) ---
+def test_markup_plain_text_is_uncolored():
+    parts = [{"text": "hello world"}]
+    assert printjson_markup(parts, _resolve) == "hello world"
 
 
-def test_printjson_kind_defaults_to_server():
-    assert printjson_kind(None) == "server"
-    assert printjson_kind("SomeUnknownType") == "server"
+def test_markup_item_colored_by_flags():
+    prog = AP_COLOR_CODES["plum"]
+    useful = AP_COLOR_CODES["slateblue"]
+    trap = AP_COLOR_CODES["salmon"]
+    filler = AP_COLOR_CODES["cyan"]
+    assert (
+        printjson_markup([{"type": "item_id", "text": "1", "player": 1, "flags": 1}], _resolve)
+        == f"[color={prog}]Item1[/color]"
+    )
+    assert (
+        printjson_markup([{"type": "item_id", "text": "2", "player": 1, "flags": 2}], _resolve)
+        == f"[color={useful}]Item2[/color]"
+    )
+    assert (
+        printjson_markup([{"type": "item_id", "text": "3", "player": 1, "flags": 4}], _resolve)
+        == f"[color={trap}]Item3[/color]"
+    )
+    assert (
+        printjson_markup([{"type": "item_id", "text": "4", "player": 1, "flags": 0}], _resolve)
+        == f"[color={filler}]Item4[/color]"
+    )
+
+
+def test_markup_player_self_vs_other():
+    me = AP_COLOR_CODES["magenta"]
+    other = AP_COLOR_CODES["yellow"]
+    parts = [{"type": "player_id", "text": "1"}]
+    assert printjson_markup(parts, _resolve, self_slot=1) == f"[color={me}]Player1[/color]"
+    assert printjson_markup(parts, _resolve, self_slot=2) == f"[color={other}]Player1[/color]"
+
+
+def test_markup_location_is_green():
+    green = AP_COLOR_CODES["green"]
+    parts = [{"type": "location_id", "text": "7", "player": 1}]
+    assert printjson_markup(parts, _resolve) == f"[color={green}]Loc7[/color]"
+
+
+def test_markup_escapes_brackets_in_names():
+    # Item names with literal brackets must not be parsed as markup tags.
+    def resolve(part_type, text, part):
+        return "[Radio Edit]"
+
+    out = printjson_markup([{"type": "item_id", "text": "1", "player": 1, "flags": 0}], resolve)
+    assert "&bl;Radio Edit&br;" in out
+    assert "[Radio Edit]" not in out
 
 
 # --- make_log_entry ---
-def test_make_log_entry_defaults_to_server_kind():
-    assert make_log_entry("hi") == {"text": "hi", "kind": "server"}
-
-
-def test_make_log_entry_keeps_kind():
-    assert make_log_entry("a hint", "hint") == {"text": "a hint", "kind": "hint"}
+def test_make_log_entry_shape():
+    assert make_log_entry("hi") == {"text": "hi"}
 
 
 # --- append_capped ---
@@ -90,7 +125,7 @@ def test_append_capped_appends_in_place():
     entries = []
     ret = append_capped(entries, make_log_entry("one"), cap=10)
     assert ret is entries
-    assert entries == [{"text": "one", "kind": "server"}]
+    assert entries == [{"text": "one"}]
 
 
 def test_append_capped_trims_oldest_keeping_newest():

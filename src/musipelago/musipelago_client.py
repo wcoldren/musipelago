@@ -103,7 +103,7 @@ from musipelago.utils_client import (
     count_pending_traps,
     global_exception_handler,
     make_log_entry,
-    printjson_kind,
+    printjson_markup,
     unmask_row,
 )
 from musipelago.vlc_audio_player import GenericAudioPlayer
@@ -494,10 +494,8 @@ class ArchipelagoLoginPopup(Popup):
 
 
 class MessageRow(Label):
-    """One row in the B4 message feed (RecycleView viewclass). ``kind`` (server / item /
-    hint / chat / join / goal) drives the row's text color via the kv rule."""
-
-    kind = StringProperty("server")
+    """One row in the B4 message feed (RecycleView viewclass). The ``text`` is Kivy
+    markup with per-part AP coloring; the kv rule renders it with ``markup: True``."""
 
 
 # --- ToastMessage, ItemMenu, CustomListItem, ListContainer (Unchanged) ---
@@ -637,12 +635,12 @@ class RootLayout(BoxLayout):
         else:
             self.ids.play_pause_button.text = "Play"
 
-    def append_log_message(self, text, kind="server"):
-        """Append one message to the scrolling feed (B4). Bounded so a long session
-        can't grow the log unbounded; the kv ``data:`` binding refreshes the view."""
+    def append_log_message(self, text):
+        """Append one message (Kivy markup) to the scrolling feed (B4). Bounded so a long
+        session can't grow the log unbounded; the kv ``data:`` binding refreshes the view."""
         if not text:
             return
-        append_capped(self.message_log_data, make_log_entry(text, kind))
+        append_capped(self.message_log_data, make_log_entry(text))
 
     def on_chat_submit(self, text):
         """Send a chat line to the AP server from the input box (B4). No local echo —
@@ -1583,20 +1581,21 @@ class ArchipelagoClient:
                             self.checked_locations.update(newly_checked)
                     elif cmd == "PrintJSON":
                         data_parts = packet.get("data", [])
+                        # Plain text for the one-line status bar; AP-colored markup for the feed.
                         message_text = compose_printjson_text(
                             data_parts, self._resolve_printjson_part
                         )
                         if message_text:
-                            kind = printjson_kind(packet.get("type"))
+                            markup_text = printjson_markup(
+                                data_parts, self._resolve_printjson_part, self.slot_id
+                            )
                             Clock.schedule_once(
                                 lambda dt, m=message_text: setattr(
                                     self.app.root, "ap_status_text", m
                                 )
                             )
                             Clock.schedule_once(
-                                lambda dt, m=message_text, k=kind: self.app.root.append_log_message(
-                                    m, k
-                                )
+                                lambda dt, m=markup_text: self.app.root.append_log_message(m)
                             )
                         if packet.get("type") == "Hint":
                             if item_data := packet.get("item"):
