@@ -188,7 +188,7 @@ overflowed the fixed 100dp rows. Added `shorten: True; shorten_from: 'right'` to
 `text_line_*` Labels (matching the now-playing widget) for single-line ellipsis. Shipped on
 `fix/client-list-text-overflow` → `dev`.
 
-### B2. Visual refresh + theming — 🟡 · gen ✅ **DONE** / client ⏳
+### B2. Visual refresh + theming — 🟡 · gen ✅ **DONE** / client ✅ **DONE**
 ~20 hardcoded RGBA values scattered with no central theme. Extract constants for a cohesive
 palette/spacing, modernize cards (rounded corners via canvas), consistent fonts. Enables dark/light
 variants with no code changes.
@@ -201,7 +201,14 @@ variants with no code changes.
   only appears for artists' secondary action), a **real Settings popup** (live Dark/Light theme
   toggle persisted to the gen `JsonStore` + an About/how-to), and clearer `GeneratePopup` labels for
   the A5 mixtape controls. 10 headless tests (`test_gen_ui.py`).
-- **Client — ⏳ not yet.** The same `theme.py` can drive `musipelagoclient.kv`; deferred.
+- **Client — ✅ done** on `feat/b2-client-theme` (off `dev`, merged `--no-ff`): the same `theme.py`
+  palette now drives the client. Added `theme_name` + 7 `col_*` `ColorProperty`s + `apply_theme()` to
+  `MusipelagoClientApp` (persisted in `client_settings`), swapped the ~10 structural RGBA sites in
+  `musipelagoclient.kv` to `app.col_*` (backgrounds → `col_bg`/`col_surface`, secondary text →
+  `col_text_dim`), and added a Dark/Light toggle to the client Settings popup. Semantic state colors
+  (finished-green / hint-amber) left literal. 4 headless `apply_theme` tests (`test_client_theme.py`).
+  Manual visual GUI check still pending. (Future polish: a `Window.clearcolor` so the light theme's
+  window backdrop also lightens, and themeing the rounded-card geometry like the gen app.)
 - **Blank-pane regression fix** (`fix/gen-blank-panes`, off `dev`): the refresh wrapped each
   `RecycleView` in a `FloatLayout` for the empty-state overlay but gave them no `pos_hint`, so the
   lists were positioned at the window origin and panes looked blank (rows + buttons invisible, scan
