@@ -107,6 +107,7 @@ from musipelago.utils_client import (
     count_pending_traps,
     global_exception_handler,
     make_log_entry,
+    mark_active_rows,
     peek_rehide_row,
     peek_reveal_row,
     printjson_markup,
@@ -517,6 +518,7 @@ class CustomListItem(ButtonBehavior, BoxLayout):
     is_owned = BooleanProperty(True)
     has_hint = BooleanProperty(False)
     all_tracks_finished = BooleanProperty(False)
+    is_playing_now = BooleanProperty(False)  # highlight the active track/album row in blue
     raw_title = StringProperty()
     raw_artist = StringProperty()
     raw_album_type = StringProperty()
@@ -692,6 +694,7 @@ class RootLayout(BoxLayout):
             self.playback_info_widget.track_title = "Stopped"
             self.playback_info_widget.progress_value = 0
             self.playback_info_widget.current_time = "00:00"
+        self.update_now_playing_highlight()  # clear the blue highlight on stop
 
     def on_mute_click(self):
         """Toggles mute state and delegates to plugin."""
@@ -1045,11 +1048,13 @@ class RootLayout(BoxLayout):
                     "has_hint": has_hint_bool,
                     "can_reveal": hidden,
                     "can_guess": hidden and app.guess_mode,
+                    "is_playing_now": False,
                 }
                 track_list_for_rv.append(item_data)
 
             self.ids.list_container.ids.track_rv.data = track_list_for_rv
             self.set_status(f"Showing {len(track_list_for_rv)} tracks.")
+            self.update_now_playing_highlight()  # re-apply blue highlight after a re-render
             Logger.info("--- populate_track_list finished successfully ---")
 
         except Exception as e:
@@ -1099,6 +1104,26 @@ class RootLayout(BoxLayout):
                     f"UI updated 'all_tracks_finished' for album: {album_data['raw_title']}"
                 )
                 break
+
+    def update_now_playing_highlight(self, *_a):
+        """Blue-highlight the active track's row (track pane) and its album's row (album pane).
+
+        Driven by the backend's current_playing_track_uri; the playing album is that track's
+        parent_uri. Called whenever playback starts/stops (both backends) and after the track
+        list is repopulated. Idempotent — only refreshes a pane if a flag actually changed."""
+        app = App.get_running_app()
+        host = getattr(app, "client_host_ui", None)
+        uri = getattr(host, "current_playing_track_uri", None) if host else None
+        album_uri = (app.track_progress.get(uri, {}) or {}).get("parent_uri") if uri else None
+        try:
+            track_rv = self.ids.list_container.ids.track_rv
+            if mark_active_rows(track_rv.data, uri):
+                track_rv.refresh_from_data()
+            album_rv = self.ids.list_container.ids.album_rv
+            if mark_active_rows(album_rv.data, album_uri):
+                album_rv.refresh_from_data()
+        except Exception as e:
+            Logger.warning(f"UI: now-playing highlight update failed: {e}")
 
     def check_and_update_album_completion(self, container_uri):
         """
@@ -2411,6 +2436,7 @@ class MusipelagoClientApp(App):
                         "is_finished": False,
                         "can_reveal": False,  # albums are never revealable
                         "can_guess": False,  # albums are never guessable
+                        "is_playing_now": False,
                         "list_id": uri,
                         "raw_item_type": "album",  # UI still uses 'album'
                         "raw_uri": uri,

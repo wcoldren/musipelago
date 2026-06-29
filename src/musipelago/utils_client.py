@@ -129,6 +129,21 @@ def pick_shuffle_tracks(pool, n, rng):
     return rng.sample(list(pool), min(n, len(pool)))
 
 
+# --- Now-playing highlight (pure; flag the active row for blue coloring) ---
+def mark_active_rows(rows, active_uri):
+    """Set ``is_playing_now`` True on the row whose ``raw_uri`` matches ``active_uri``, False on
+    all others. ``rows`` is a list of RecycleView data dicts. Returns True if any flag changed
+    (so the caller can skip a redundant refresh). A falsy ``active_uri`` clears every row.
+    Pure (no Kivy) so it tests headlessly."""
+    changed = False
+    for row in rows:
+        want = bool(active_uri) and row.get("raw_uri") == active_uri
+        if row.get("is_playing_now") != want:
+            row["is_playing_now"] = want
+            changed = True
+    return changed
+
+
 # --- Boon selection (A8; pure; used by the client's Skip/Reveal Token effects) ---
 def eligible_skip_tracks(track_progress, owned_albums):
     """URIs of tracks a Skip Token may auto-complete: owned but NOT yet finished.
