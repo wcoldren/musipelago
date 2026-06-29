@@ -378,7 +378,9 @@ green confirmed on first push.)
   **"Import single album"**, and folder-memory polish (last service pre-selected; `last_directory`
   restore confirmed working).
 - **D2.** Subsonic gaps: `get_playlist_with_tracks` stub + missing pagination. — 🟡 client
-- **D2b. Subsonic ↔ local-files backend parity** — 🟡 client. Audited 2026-06-29 against
+- **D2b. Subsonic ↔ local-files backend parity** — 🟡 client. **BENCHED until a Subsonic/Navidrome
+  server is stood up** — the remaining gaps can't be GUI-verified without one, and local files is the
+  primary setup, so the rest waits until Bill sets up a server. Audited 2026-06-29 against
   `LocalFilesClientHost` (the reference). **Already at parity:** D7 continuous playback
   (`build_continuation_queue` in both), hidden-mode now-playing masking (`feat/subsonic-hidden-parity`,
   just shipped — masks title/artist/art + stashes `raw_*` so the D5 peek works), `get_settings_ui`,
