@@ -29,7 +29,12 @@ from musipelago.backends import (
 
 # --- Import Generic UI ---
 from musipelago.client_ui_components import GenericPlaybackInfo, ItemMenu
-from musipelago.utils_client import KIVY_ICON, build_continuation_queue, now_playing_album
+from musipelago.utils_client import (
+    KIVY_ICON,
+    build_continuation_queue,
+    next_album_start,
+    now_playing_album,
+)
 
 
 # -------------------------------------------------------------------
@@ -711,9 +716,40 @@ class SubsonicClientHost(AbstractClientHost):
         if 0 <= idx < len(self.playback_queue):
             self.queue_index = idx
             Clock.schedule_once(lambda dt: self._play_track_internal(self.playback_queue[idx]), 0.2)
+        elif self._autoplay_next_album():
+            pass  # auto-advanced into the next owned album
         else:
             self.is_playing = False
             self.playback_info_widget.track_title = "Finished"
+
+    def _autoplay_next_album(self) -> bool:
+        """Continue into the next owned album with an unfinished track when this album's queue
+        ends (cross-album auto-advance). Gated by the autoplay_next_album setting. Returns True
+        if it started a track. Subsonic resolves the current album via the playing track's
+        parent_uri (it has no Mixtape container)."""
+        if not getattr(self.app, "autoplay_next_album", True):
+            return False
+        prog = self.app.track_progress.get(self.current_playing_track_uri) or {}
+        current = prog.get("parent_uri")
+        nxt = next_album_start(
+            self.app.ordered_album_uris,
+            current,
+            self.app.owned_albums,
+            self.app.album_data_cache,
+            self.app.track_progress,
+        )
+        if not nxt:
+            return False
+        album_uri, track_uri = nxt
+        self.root_layout.populate_track_list(album_uri)
+        album = self.app.album_data_cache.get(album_uri)
+        queue = build_continuation_queue(album, track_uri) if album else []
+        if not queue:
+            return False
+        self.playback_queue = queue
+        self.queue_index = 0
+        Clock.schedule_once(lambda dt: self._play_track_internal(queue[0]), 0.2)
+        return True
 
     # ... (Standard passthroughs) ...
     def on_play_pause_click(self):
