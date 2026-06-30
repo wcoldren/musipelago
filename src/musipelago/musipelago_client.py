@@ -100,6 +100,7 @@ from musipelago.plugin_loader import PluginManager
 from musipelago.utils_client import (
     KIVY_ICON,
     _titles_match,
+    album_art_for_display,
     ap_color_codes,
     append_capped,
     clear_peek_state,
@@ -1110,6 +1111,10 @@ class RootLayout(BoxLayout):
                 if album_data.get("all_tracks_finished") == all_finished_status:
                     break
                 album_data["all_tracks_finished"] = all_finished_status
+                # A3b: finishing the whole album unlocks its real cover (was masked in hidden
+                # mode). A no-op when not masked (image_source already equals raw_image_url).
+                if all_finished_status and album_data.get("raw_image_url"):
+                    album_data["image_source"] = album_data["raw_image_url"]
                 album_rv.refresh_from_data()
                 Logger.info(
                     f"UI updated 'all_tracks_finished' for album: {album_data['raw_title']}"
@@ -2440,7 +2445,11 @@ class MusipelagoClientApp(App):
                         "text_line_2": artists,
                         "text_line_3": f"{type_str} • Tracks: {total_tracks}",
                         "text_line_4": apworld_name,
-                        "image_source": image_url,
+                        # A3b: in hidden mode an owned Mixtape's collage cover spoils its contents,
+                        # so mask it behind the neutral placeholder until all its tracks finish.
+                        "image_source": album_art_for_display(
+                            image_url, self.hidden_metadata, all_tracks_complete
+                        ),
                         "is_owned": is_owned,
                         "has_hint": album_has_hint,
                         "all_tracks_finished": all_tracks_complete,
