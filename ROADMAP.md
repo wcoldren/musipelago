@@ -126,16 +126,15 @@ peek. Album names stay visible. Real values kept as `raw_*` so playback is unaff
 the **client Settings surface** that A2/C3 reuse. Shipped on `feat/client-hidden-mode` → `dev`.
 (Follow-up: Subsonic now-playing masking parity.)
 
-- **A3b — hidden-mode album-art unlock** (🟡 · client-only): the now-playing art + track-row thumbnails
-  already mask in hidden mode, but the **album-list row art is gated only on `is_owned`**
-  (`musipelagoclient.kv:346`; `can_reveal:False` at `:2412`), so an owned **Mixtape's collage cover
-  spoils its contents** (the collage is literally built from its songs' covers). **Chosen design:** in
-  hidden mode, owned-but-unfinished albums show a neutral **"available, art hidden" tile** (distinct from
-  the unowned `LOCKED_ICON`); the real cover + collage **auto-unlock once all the album's tracks are
-  finished** (reuse `all_tracks_finished` + `update_album_all_tracks_finished_status` + the
-  `raw_image_source` mask pattern). Defer building the mixtape collage until reveal so even the thumbnail
-  can't leak. (Note: B6's per-song origin art already masks in hidden mode; this is specifically the
-  album-pane cover.)
+- **A3b — hidden-mode album-art unlock** — ✅ **DONE** (`feat/a3b-album-art-mask` → `dev`): an owned
+  **Mixtape's collage cover spoiled its contents** in the album pane even in hidden mode (the collage is
+  built from its songs' covers; the now-playing bar + track rows already masked, but album-list art was
+  gated only on `is_owned`). Now pure `album_art_for_display(image_url, hidden, all_finished)`
+  (`utils_client`) returns the neutral `KIVY_ICON` tile (distinct from the unowned `LOCKED_ICON` via the
+  kv ownership gate) while hidden + unfinished, and the real cover otherwise; `_populate_initial_lists`
+  masks the album-row `image_source` through it (real value kept in `raw_image_url`), and
+  `update_album_all_tracks_finished_status` **unlocks the real cover once every track in the album is
+  finished**. Client-only, no rebuild. 4 tests. (B6's per-song origin art already masked separately.)
 - **Synergy:** A2 + A3 together = a music-learning quiz (blind listen → guess → reveal). Strong combo.
 
 ### A4. (enabler) Generator-side curation for traps/quiz — 🟡 · gen
