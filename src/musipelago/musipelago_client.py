@@ -93,6 +93,7 @@ from kivy.uix.relativelayout import (
 from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
 from kivy.uix.togglebutton import ToggleButton
+from kivy.uix.widget import Widget
 
 # --- LOCAL IMPORTS ---
 from musipelago.client_ui_components import ItemMenu, ToastMessage
@@ -103,8 +104,11 @@ from musipelago.utils_client import (
     album_art_for_display,
     ap_color_codes,
     append_capped,
+    build_stats_rows,
+    clamp_panel_width,
     clear_peek_state,
     compose_printjson_text,
+    compute_stats,
     count_pending_traps,
     global_exception_handler,
     make_log_entry,
@@ -514,6 +518,44 @@ class MessageRow(Label):
     markup with per-part AP coloring; the kv rule renders it with ``markup: True``."""
 
 
+class StatRow(BoxLayout):
+    """One row in the stats panel (RecycleView viewclass): a label + value, or a bold section
+    header when ``kind == 'header'``. The kv rule styles it from these properties."""
+
+    label = StringProperty("")
+    value = StringProperty("")
+    kind = StringProperty("stat")  # 'stat' | 'header'
+
+
+class StatsDragHandle(Widget):
+    """A thin draggable strip on the stats panel's left edge — drag it to resize the panel width
+    (the only resizable widget in the client). Updates the app's ``stats_panel_width`` (clamped)
+    while dragging and persists it on release. No-op when the panel is collapsed."""
+
+    def on_touch_down(self, touch):
+        if self.disabled or not self.collide_point(*touch.pos):
+            return super().on_touch_down(touch)
+        touch.grab(self)
+        return True
+
+    def on_touch_move(self, touch):
+        if touch.grab_current is not self:
+            return super().on_touch_move(touch)
+        app = App.get_running_app()
+        # The handle is on the LEFT edge, so dragging left (negative dx) widens the panel.
+        app.stats_panel_width = clamp_panel_width(
+            app.stats_panel_width - touch.dx, dp(240), dp(560)
+        )
+        return True
+
+    def on_touch_up(self, touch):
+        if touch.grab_current is not self:
+            return super().on_touch_up(touch)
+        touch.ungrab(self)
+        App.get_running_app()._save_client_settings()
+        return True
+
+
 # --- ToastMessage, ItemMenu, CustomListItem, ListContainer (Unchanged) ---
 class CustomListItem(ButtonBehavior, BoxLayout):
     text_line_1 = StringProperty("Line 1")
@@ -628,6 +670,9 @@ class RootLayout(BoxLayout):
     # B4 message log / chat console
     message_log_data = ListProperty()
     log_panel_open = BooleanProperty(True)
+    # Stats panel
+    stats_data = ListProperty()
+    stats_panel_open = BooleanProperty(False)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -636,6 +681,7 @@ class RootLayout(BoxLayout):
         self._last_known_volume = 50
         # Reflect the persisted message-panel visibility (loaded into the App on build).
         self.log_panel_open = bool(getattr(App.get_running_app(), "log_panel_open", True))
+        self.stats_panel_open = bool(getattr(App.get_running_app(), "stats_panel_open", False))
         self.set_status(self._status_text_internal)
         # D5: Cmd/Ctrl+R peeks the currently-playing track's hidden metadata.
         Window.bind(on_key_down=self._on_global_key)
@@ -680,6 +726,39 @@ class RootLayout(BoxLayout):
         app = App.get_running_app()
         app.log_panel_open = self.log_panel_open
         app._save_client_settings()
+
+    def toggle_stats_panel(self):
+        """Show/hide the stats panel (persisted), recomputing on open so it's fresh."""
+        self.stats_panel_open = not self.stats_panel_open
+        app = App.get_running_app()
+        app.stats_panel_open = self.stats_panel_open
+        if self.stats_panel_open:
+            self.refresh_stats()
+        app._save_client_settings()
+
+    def refresh_stats(self, *_a):
+        """Recompute the stats rows from current app state (pure compute_stats) and push them to
+        the panel. Cheap + event-driven (called on track finish / item sync / location checks /
+        panel open); skipped when the panel is closed."""
+        if not self.stats_panel_open:
+            return
+        app = App.get_running_app()
+        ap = getattr(app, "ap_client", None)
+        try:
+            stats = compute_stats(
+                track_progress=getattr(app, "track_progress", {}),
+                album_data_cache=getattr(app, "album_data_cache", {}),
+                owned_albums=getattr(app, "owned_albums", set()),
+                ordered_album_uris=getattr(app, "ordered_album_uris", []),
+                checked_locations=getattr(ap, "checked_locations", set()),
+                missing_locations=getattr(ap, "missing_locations", set()),
+                received_items=getattr(ap, "received_items", []),
+                id_to_item_name=getattr(ap, "id_to_item_name", {}),
+                current_album_uri=getattr(app, "_current_track_container_uri", None),
+            )
+            self.stats_data = build_stats_rows(stats)
+        except Exception as e:
+            Logger.warning(f"UI: stats refresh failed: {e}")
 
     def format_duration(self, ms):
         if not isinstance(ms, (int, float)) or ms < 0:
@@ -1081,6 +1160,7 @@ class RootLayout(BoxLayout):
                 album_rv.refresh_from_data()
                 Logger.info(f"UI updated for album: {album_data['raw_title']}")
                 break
+        self.refresh_stats()  # an unlocked album changes albums-unlocked / time-playable
 
     def update_album_hint_text(self, album_uri, hint_text):
         album_rv = self.ids.list_container.ids.album_rv
@@ -1380,6 +1460,7 @@ class RootLayout(BoxLayout):
                         Logger.warning(f"DEBUG: Track {track_uri} has NO parent_uri!")
             except Exception as e:
                 Logger.error(f"UI: Failed to check parent album completion: {e}")
+        self.refresh_stats()  # a finished track changes checks/time-left/etc.
 
 
 # --- ArchipelagoClient ---
@@ -1793,6 +1874,7 @@ class ArchipelagoClient:
                                     self.owned_item_ids.add(item_id)
 
                             self._sync_owned_items()
+                            Clock.schedule_once(lambda dt: self.app.root.refresh_stats())
                         else:
                             # If indices don't match, we might be desynced or receiving a redelivery.
                             # For simple clients, ignoring is safer than duplicating.
@@ -1829,6 +1911,7 @@ class ArchipelagoClient:
                     elif cmd == "RoomUpdate":
                         if newly_checked := packet.get("checked_locations", []):
                             self.checked_locations.update(newly_checked)
+                            Clock.schedule_once(lambda dt: self.app.root.refresh_stats())
                     elif cmd == "PrintJSON":
                         data_parts = packet.get("data", [])
                         # Plain text for the one-line status bar; AP-colored markup for the feed.
@@ -2037,6 +2120,9 @@ class MusipelagoClientApp(App):
     col_text = ColorProperty(theme.DARK["text"])
     col_text_dim = ColorProperty(theme.DARK["text_dim"])
     col_border = ColorProperty(theme.DARK["border"])
+    # Stats panel width (reactive so the kv width binding + drag handle update live). The default
+    # is a raw px placeholder; build() sets the dp-scaled default at runtime (dp() needs a window).
+    stats_panel_width = NumericProperty(300)
 
     def apply_theme(self, name, persist=True):
         """Swap the live color palette (and optionally persist the choice).
@@ -2073,6 +2159,8 @@ class MusipelagoClientApp(App):
         self.shuffle_trap_count = 1  # how many already-played tracks a Shuffle Trap replays
         self.seek_trap_seconds = 15  # how many seconds a Seek Trap yanks the playhead
         self.log_panel_open = True  # B4 message-log panel visibility (client-side toggle)
+        self.stats_panel_open = False  # stats panel visibility (client-side toggle)
+        self.stats_panel_width = dp(300)  # dp-scaled default (overridden by client_settings)
         self.traps_enabled = False  # set from slot_data on connect
         self.boons_enabled = False  # set from slot_data on connect
         self._trap_modal_queue = []  # pending trap effects, shown one at a time
@@ -2122,6 +2210,10 @@ class MusipelagoClientApp(App):
                 self.shuffle_trap_count = max(1, int(cs.get("shuffle_trap_count", 1)))
                 self.seek_trap_seconds = max(5, min(60, int(cs.get("seek_trap_seconds", 15))))
                 self.log_panel_open = bool(cs.get("log_panel_open", True))
+                self.stats_panel_open = bool(cs.get("stats_panel_open", False))
+                self.stats_panel_width = clamp_panel_width(
+                    cs.get("stats_panel_width", dp(300)), dp(240), dp(560)
+                )
                 self.theme_name = str(cs.get("theme_name", "dark"))
         except Exception as e:
             Logger.warning(f"Cache: Could not load client settings: {e}")
@@ -2547,6 +2639,8 @@ class MusipelagoClientApp(App):
                 shuffle_trap_count=int(self.shuffle_trap_count),
                 seek_trap_seconds=int(self.seek_trap_seconds),
                 log_panel_open=bool(self.log_panel_open),
+                stats_panel_open=bool(self.stats_panel_open),
+                stats_panel_width=float(self.stats_panel_width),
                 theme_name=str(self.theme_name),
             )
         except Exception as e:
