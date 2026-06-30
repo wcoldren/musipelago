@@ -300,6 +300,19 @@ def test_grid_empty_pool_returns_source():
     assert g.build_meta_albums([], mode="grid", count=10, pack_size=5) == []
 
 
+def test_grid_within_pack_order_is_shuffled_not_descending():
+    # LPT assigns longest-first, so without the shuffle each pack is sorted longest->shortest.
+    # With a seed the within-pack order must be mixed up (membership/balance unchanged).
+    durations = [(i + 1) * 60 * 1000 for i in range(50)]  # 50 distinct durations
+    src = [_varied_album("v", durations)]
+    metas = g.build_meta_albums(src, mode="grid", count=10, pack_size=5, seed=7)
+    pack_orders = [[t.duration_ms for t in m.tracks] for m in metas]
+    # At least one pack is NOT in non-increasing order (i.e. the shuffle reordered it).
+    assert any(order != sorted(order, reverse=True) for order in pack_orders)
+    # Balance + membership invariant still holds.
+    _grid_partition_ok(metas, expect_packs=10, expect_size=5)
+
+
 # --- Track origin: mixtape tracks retain their source album name + cover ---
 def _art_album(uri, n, image_url):
     a = album(uri, n)
