@@ -54,6 +54,7 @@ from musipelago.utils_client import (
     build_continuation_queue,
     eligible_shuffle_tracks,
     eligible_skip_tracks,
+    next_album_start,
     now_playing_album,
     pick_shuffle_tracks,
     resolve_track_art,
@@ -1362,6 +1363,8 @@ class LocalFilesClientHost(AbstractClientHost):
         elif self._trap_playing:
             # Forced Shuffle Trap queue exhausted -> resume what was interrupted (or park).
             self._end_shuffle_trap()
+        elif self._autoplay_next_album():
+            Logger.info("LocalFiles: Album finished -> auto-advanced to the next album.")
         else:
             Logger.info("LocalFiles: Queue finished.")
             self.is_playing = False
@@ -1372,6 +1375,33 @@ class LocalFilesClientHost(AbstractClientHost):
                 self.playback_info_widget.current_time = "00:00"
             self.playback_queue = []
             self.queue_index = -1
+
+    def _autoplay_next_album(self) -> bool:
+        """When an album's queue is exhausted, continue into the next owned album with an
+        unfinished track (cross-album auto-advance). Gated by the autoplay_next_album setting and
+        never crosses albums during a forced Shuffle Trap. Returns True if it started a track."""
+        if self._trap_playing or not getattr(self.app, "autoplay_next_album", True):
+            return False
+        current = getattr(self.app, "_current_track_container_uri", None)
+        nxt = next_album_start(
+            self.app.ordered_album_uris,
+            current,
+            self.app.owned_albums,
+            self.app.album_data_cache,
+            self.app.track_progress,
+        )
+        if not nxt:
+            return False
+        album_uri, track_uri = nxt
+        self.root_layout.populate_track_list(album_uri)  # switch the displayed album
+        album = self.app.album_data_cache.get(album_uri)
+        queue = build_continuation_queue(album, track_uri) if album else []
+        if not queue:
+            return False
+        self.playback_queue = queue
+        self.queue_index = 0
+        self._play_track_internal(queue[0])
+        return True
 
     def _play_track_internal(self, track_obj: GenericTrack):
         self.stop_polling()

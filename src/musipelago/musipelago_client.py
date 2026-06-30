@@ -888,6 +888,22 @@ class RootLayout(BoxLayout):
 
         guess_btn.bind(on_release=_on_guess_toggle)
         panel.add_widget(guess_btn)
+
+        # App-level: auto-play the next owned album when one finishes (extends D7).
+        autoplay_btn = ToggleButton(
+            text=f"Auto-play next album: {'ON' if app.autoplay_next_album else 'OFF'}",
+            state="down" if app.autoplay_next_album else "normal",
+            size_hint_y=None,
+            height="48dp",
+        )
+
+        def _on_autoplay_toggle(btn):
+            active = btn.state == "down"
+            btn.text = f"Auto-play next album: {'ON' if active else 'OFF'}"
+            self.set_autoplay_next_album(active)
+
+        autoplay_btn.bind(on_release=_on_autoplay_toggle)
+        panel.add_widget(autoplay_btn)
         panel.add_widget(
             Label(
                 text="Name the track to earn its check (needs Hidden mode on). Reveal = give up — it still releases the check so you're never stuck.",
@@ -1027,6 +1043,16 @@ class RootLayout(BoxLayout):
         app._save_client_settings()
         self._refresh_lists()
         app.show_toast(f"Guess mode {'ON' if active else 'OFF'}")
+
+    def set_autoplay_next_album(self, active):
+        """Toggle cross-album auto-advance and persist it (no re-render needed)."""
+        app = App.get_running_app()
+        active = bool(active)
+        if active == app.autoplay_next_album:
+            return
+        app.autoplay_next_album = active
+        app._save_client_settings()
+        app.show_toast(f"Auto-play next album {'ON' if active else 'OFF'}")
 
     def set_shuffle_trap_count(self, value):
         """Set how many already-played tracks a Shuffle Trap replays (clamped 1–10), persist it.
@@ -2160,6 +2186,7 @@ class MusipelagoClientApp(App):
         self.seek_trap_seconds = 15  # how many seconds a Seek Trap yanks the playhead
         self.log_panel_open = True  # B4 message-log panel visibility (client-side toggle)
         self.stats_panel_open = False  # stats panel visibility (client-side toggle)
+        self.autoplay_next_album = True  # continue into the next owned album when one finishes
         self.stats_panel_width = dp(300)  # dp-scaled default (overridden by client_settings)
         self.traps_enabled = False  # set from slot_data on connect
         self.boons_enabled = False  # set from slot_data on connect
@@ -2211,6 +2238,7 @@ class MusipelagoClientApp(App):
                 self.seek_trap_seconds = max(5, min(60, int(cs.get("seek_trap_seconds", 15))))
                 self.log_panel_open = bool(cs.get("log_panel_open", True))
                 self.stats_panel_open = bool(cs.get("stats_panel_open", False))
+                self.autoplay_next_album = bool(cs.get("autoplay_next_album", True))
                 self.stats_panel_width = clamp_panel_width(
                     cs.get("stats_panel_width", dp(300)), dp(240), dp(560)
                 )
@@ -2640,6 +2668,7 @@ class MusipelagoClientApp(App):
                 seek_trap_seconds=int(self.seek_trap_seconds),
                 log_panel_open=bool(self.log_panel_open),
                 stats_panel_open=bool(self.stats_panel_open),
+                autoplay_next_album=bool(self.autoplay_next_album),
                 stats_panel_width=float(self.stats_panel_width),
                 theme_name=str(self.theme_name),
             )

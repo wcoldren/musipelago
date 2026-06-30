@@ -367,6 +367,45 @@ def eligible_skip_tracks(track_progress, owned_albums):
     ]
 
 
+# --- Cross-album auto-advance (extends D7; pure) ---
+def first_unfinished_track(album, track_progress):
+    """URI of the first track in ``album`` not yet finished (per ``track_progress``), else None.
+    ``album`` is any object exposing ``.tracks`` (objects with ``.uri``). Pure (no Kivy)."""
+    for t in getattr(album, "tracks", None) or []:
+        uri = getattr(t, "uri", None)
+        if uri and not (track_progress.get(uri) or {}).get("is_finished"):
+            return uri
+    return None
+
+
+def next_album_start(
+    ordered_album_uris, current_album_uri, owned_albums, album_data_cache, track_progress
+):
+    """Where to continue when an album finishes: the next OWNED album (catalog order, wrapping
+    past the end) that still has an unfinished track, as ``(album_uri, track_uri)`` — or None when
+    every owned album is fully finished. The just-finished album has no unfinished tracks so it is
+    naturally skipped. Mirrors the eligible_* selectors (pure dict/list params)."""
+    uris = list(ordered_album_uris or [])
+    if not uris:
+        return None
+    try:
+        start = uris.index(current_album_uri)
+    except ValueError:
+        start = -1  # current not in the list -> scan from the top
+    n = len(uris)
+    for off in range(1, n + 1):
+        cand = uris[(start + off) % n]
+        if cand not in (owned_albums or set()):
+            continue
+        album = (album_data_cache or {}).get(cand)
+        if not album:
+            continue
+        track_uri = first_unfinished_track(album, track_progress)
+        if track_uri:
+            return (cand, track_uri)
+    return None
+
+
 # --- Seek Trap (pure; used by the client's Seek/Scrub Trap effect) ---
 def seek_trap_target(pos, dur, delta, end_margin=2.0):
     """Bounds-clamped seek target (seconds) for the Seek Trap.
