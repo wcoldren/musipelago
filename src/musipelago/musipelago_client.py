@@ -104,6 +104,7 @@ from musipelago.utils_client import (
     album_art_for_display,
     ap_color_codes,
     append_capped,
+    boon_target_ok,
     build_stats_rows,
     clamp_panel_width,
     clear_peek_state,
@@ -117,6 +118,7 @@ from musipelago.utils_client import (
     peek_reveal_row,
     printjson_markup,
     resolve_track_art,
+    tally_by_name,
     unmask_row,
 )
 from musipelago.vlc_audio_player import GenericAudioPlayer
@@ -673,6 +675,13 @@ class RootLayout(BoxLayout):
     # Stats panel
     stats_data = ListProperty()
     stats_panel_open = BooleanProperty(False)
+    # Traps/boons status strip (A8 boon inventory)
+    trap_boon_strip_visible = BooleanProperty(False)
+    traps_summary = StringProperty("")
+    boon_reveal_label = StringProperty("Reveal")
+    boon_skip_label = StringProperty("Skip")
+    boon_reveal_avail = BooleanProperty(False)
+    boon_skip_avail = BooleanProperty(False)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -682,6 +691,7 @@ class RootLayout(BoxLayout):
         # Reflect the persisted message-panel visibility (loaded into the App on build).
         self.log_panel_open = bool(getattr(App.get_running_app(), "log_panel_open", True))
         self.stats_panel_open = bool(getattr(App.get_running_app(), "stats_panel_open", False))
+        self._pending_boon = None  # boon awaiting a target track click (use_boon targeting mode)
         self.set_status(self._status_text_internal)
         # D5: Cmd/Ctrl+R peeks the currently-playing track's hidden metadata.
         Window.bind(on_key_down=self._on_global_key)
@@ -806,8 +816,70 @@ class RootLayout(BoxLayout):
 
     def on_list_item_click(self, list_item):
         app = App.get_running_app()
+        # Boon targeting: when a boon Use is armed, the next TRACK click spends it on that track
+        # instead of playing it. Album clicks still pass through (navigate to find a target).
+        if self._pending_boon and getattr(list_item, "raw_item_type", "") == "track":
+            name, self._pending_boon = self._pending_boon, None
+            self.set_status(self._status_text_internal)  # clear the targeting hint
+            uri = list_item.raw_uri
+            owned = (app.track_progress.get(uri) or {}).get("parent_uri") in app.owned_albums
+            if owned and boon_target_ok(name, list_item.is_finished, list_item.can_reveal):
+                self._apply_boon(name, uri)
+            else:
+                app.show_toast(f"Can't use {name} on that track.")
+            return
         if app.client_host_ui:
             app.client_host_ui.on_list_item_click(list_item)
+
+    # --- Spendable boon inventory (A8) ---
+    def use_boon(self, name):
+        """Arm a held boon for spending: the next track row you click receives it."""
+        app = App.get_running_app()
+        if (getattr(app, "boon_inventory", {}) or {}).get(name, 0) <= 0:
+            app.show_toast(f"No {name} available.")
+            return
+        self._pending_boon = name
+        self.status_text = f"Click a track to use {name}  (Esc to cancel)"
+        app.show_toast(f"Pick a track for {name}…")
+
+    def _apply_boon(self, name, track_uri):
+        """Spend a boon on a chosen track: Skip releases its check, Reveal unmasks its row."""
+        if name == "Skip Token":
+            self.complete_track(track_uri)
+        elif name == "Reveal Token":
+            self.reveal_track_metadata(track_uri)
+        else:
+            return
+        app = App.get_running_app()
+        app.boon_spent[name] = app.boon_spent.get(name, 0) + 1
+        if getattr(app, "boon_inventory", None):
+            app.boon_inventory[name] = max(0, app.boon_inventory.get(name, 0) - 1)
+        try:
+            key = getattr(app, "_boon_spent_key", None)
+            if key:
+                app.store.put(key, data=app.boon_spent)
+        except Exception as e:
+            Logger.warning(f"Cache: could not persist boon spend: {e}")
+        self.refresh_trap_boon_strip()
+        app.show_toast(f"Used {name}!")
+
+    def refresh_trap_boon_strip(self, *_a):
+        """Update the compact traps/boons strip from current AP + inventory state."""
+        app = App.get_running_app()
+        ap = getattr(app, "ap_client", None)
+        self.trap_boon_strip_visible = bool(
+            getattr(app, "traps_enabled", False) or getattr(app, "boons_enabled", False)
+        )
+        traps = tally_by_name(ap.received_items, ap.id_to_item_name, ap.trap_names) if ap else {}
+        if traps:
+            parts = [f"{n.replace(' Trap', '')} x{c}" for n, c in sorted(traps.items())]
+            self.traps_summary = "Traps: " + " · ".join(parts)
+        else:
+            self.traps_summary = "Traps: none"
+        inv = getattr(app, "boon_inventory", {}) or {}
+        r, s = inv.get("Reveal Token", 0), inv.get("Skip Token", 0)
+        self.boon_reveal_avail, self.boon_reveal_label = r > 0, f"Reveal x{r}"
+        self.boon_skip_avail, self.boon_skip_label = s > 0, f"Skip x{s}"
 
     def update_playback_state(self):
         app = App.get_running_app()
@@ -1343,6 +1415,12 @@ class RootLayout(BoxLayout):
         if codepoint == "r" and ({"meta", "cmd", "ctrl"} & set(modifier or [])):
             self.peek_playing_track()
             return True
+        # Esc cancels boon targeting mode.
+        if key == 27 and self._pending_boon:
+            self._pending_boon = None
+            self.set_status(self._status_text_internal)
+            App.get_running_app().show_toast("Cancelled.")
+            return True
         return False
 
     def peek_playing_track(self):
@@ -1636,6 +1714,7 @@ class ArchipelagoClient:
 
         self._dispatch_pending_traps()
         self._dispatch_pending_boons()
+        Clock.schedule_once(lambda dt: self.app.root.refresh_trap_boon_strip())
         self.check_victory()
 
     def _load_trap_state(self, slot_data):
@@ -1712,49 +1791,64 @@ class ArchipelagoClient:
         slot = slot_data.get("Slot", self.slot_id)
         self._boon_key = f"boon_cursor::{seed}::{slot}"
         self._boons_fired = 0
+        # Spent-count store (boons are a spendable inventory; held = received - spent). Keyed by
+        # Seed+Slot like the cursor so spending survives reconnect/restart. Key lives on the app
+        # so the RootLayout spend flow can persist it.
+        self.app._boon_spent_key = f"boon_spent::{seed}::{slot}"
+        self.app.boon_spent = {}
         try:
             store = getattr(self.app, "store", None)
             if store is not None and store.exists(self._boon_key):
                 self._boons_fired = int(store.get(self._boon_key).get("count", 0))
+            if store is not None and store.exists(self.app._boon_spent_key):
+                self.app.boon_spent = dict(store.get(self.app._boon_spent_key).get("data", {}))
         except Exception as e:
-            Logger.warning(f"AP: Could not load boon cursor: {e}")
+            Logger.warning(f"AP: Could not load boon state: {e}")
         Logger.info(
             f"AP: Boons {'enabled' if self.app.boons_enabled else 'disabled'}; "
-            f"cursor {self._boon_key} = {self._boons_fired} fired."
+            f"cursor {self._boon_key} = {self._boons_fired}; spent = {self.app.boon_spent}."
         )
 
     def _dispatch_pending_boons(self):
-        """Fire any newly-received boons exactly once, then persist the cursor.
-
-        Reuses the generic count_pending_traps helper (it just counts received items whose name
-        is in a name-set, beyond a cursor) — passes the boon names/cursor instead."""
+        """Accumulate received boons into the HELD inventory (boons are spent via the GUI, not
+        auto-fired). Idempotent: recomputes received counts each sync and sets
+        held = max(0, received - spent) per type. The _boons_fired cursor only gates the
+        'new boon' toast so a replayed backlog (reconnect/restart) stays quiet."""
         if not self.app_is_ready or not self.id_to_item_name or not self.boon_names:
             return
 
+        received = tally_by_name(self.received_items, self.id_to_item_name, self.boon_names)
+        spent = getattr(self.app, "boon_spent", {}) or {}
+        self.app.boon_inventory = {
+            name: max(0, received.get(name, 0) - spent.get(name, 0)) for name in self.boon_names
+        }
+
+        # Toast only on net-new boons (cursor-gated).
         pending = count_pending_traps(
             self.received_items, self.id_to_item_name, self.boon_names, self._boons_fired
         )
-        if pending <= 0:
-            return
-
-        boon_seq = [
-            self.id_to_item_name.get(it.get("item"))
-            for it in self.received_items
-            if self.id_to_item_name.get(it.get("item")) in self.boon_names
-        ]
-        new_boons = boon_seq[self._boons_fired :]
-
-        self._boons_fired += pending
-        try:
-            store = getattr(self.app, "store", None)
-            if store is not None and self._boon_key:
-                store.put(self._boon_key, count=self._boons_fired)
-        except Exception as e:
-            Logger.warning(f"AP: Could not persist boon cursor: {e}")
-
-        for name in new_boons:
-            Logger.info(f"AP: Boon received: {name}")
-            Clock.schedule_once(lambda dt, n=name: self.app.trigger_boon(n))
+        if pending > 0:
+            new_boons = [
+                self.id_to_item_name.get(it.get("item"))
+                for it in self.received_items
+                if self.id_to_item_name.get(it.get("item")) in self.boon_names
+            ][self._boons_fired :]
+            self._boons_fired += pending
+            try:
+                store = getattr(self.app, "store", None)
+                if store is not None and self._boon_key:
+                    store.put(self._boon_key, count=self._boons_fired)
+            except Exception as e:
+                Logger.warning(f"AP: Could not persist boon cursor: {e}")
+            for name in new_boons:
+                held = self.app.boon_inventory.get(name, 0)
+                Logger.info(f"AP: Boon received: {name} (x{held} held)")
+                Clock.schedule_once(
+                    lambda dt, nm=name, c=held: self.app.show_toast(
+                        f"\U0001f381 {nm}! (x{c} to spend)"
+                    )
+                )
+        Clock.schedule_once(lambda dt: self.app.root.refresh_trap_boon_strip())
 
     def check_victory(self):
         """
@@ -2187,6 +2281,9 @@ class MusipelagoClientApp(App):
         self.log_panel_open = True  # B4 message-log panel visibility (client-side toggle)
         self.stats_panel_open = False  # stats panel visibility (client-side toggle)
         self.autoplay_next_album = True  # continue into the next owned album when one finishes
+        self.boon_inventory = {}  # held boons to spend (A8): {name: count}, derived received-spent
+        self.boon_spent = {}  # persisted spent count per boon type (per seed/slot)
+        self._boon_spent_key = None  # JsonStore key for boon_spent (set on connect)
         self.stats_panel_width = dp(300)  # dp-scaled default (overridden by client_settings)
         self.traps_enabled = False  # set from slot_data on connect
         self.boons_enabled = False  # set from slot_data on connect
