@@ -211,6 +211,22 @@ blocks); **Reveal Token** unmasks the currently-playing track via the new pure-r
 back to the acknowledgement modal — never a silent no-op. 13 tests. **Still open below:** Hint
 Token (needs A2c), free-unlock boon (A7), cosmetic boon, and the `junk_weights`/overshoot review.
 
+**A8b — spendable boon inventory + traps/boons strip — ✅ DONE** (`feat/boon-inventory` → `dev`):
+boons no longer **auto-fire** on receipt (which gave zero agency — Reveal hit whatever was playing,
+Skip completed a random track). They now accumulate as a **held inventory you spend on a clicked
+track**. `_dispatch_pending_boons` accumulates `held = max(0, received - spent)` (received recomputed
+each sync via new pure `tally_by_name`; `spent` persisted under `boon_spent::Seed::Slot`, survives
+reconnect/restart; the `_boons_fired` cursor now only gates the "new boon" toast). `RootLayout.use_boon`
+arms targeting; `on_list_item_click` intercepts the next TRACK click and spends it (`complete_track`
+for Skip / `reveal_track_metadata` for Reveal — pure `boon_target_ok` gates eligibility; Esc cancels;
+album clicks pass through to navigate). **Spend effects are RootLayout-level → works on BOTH backends**
+(no host code; the old auto-fire `trigger_boon`/host `on_boon_received`/`_skip_token`/`_reveal_token`
+path is left dead). Compact **traps/boons status strip** below the playback bar (kv, shown only when
+traps/boons enabled): a traps-received tally (`tally_by_name`) + Reveal/Skip **Use buttons** (sized by
+held>0), refreshed on sync/receive/connect/spend. **Traps stay auto-fire** (penalties). 8 tests.
+Client-only, no rebuild. Backlog: per-row "use boon here" affordance; generalize the two hardcoded Use
+buttons if more boon types are added.
+
 **Current pool (review, as of `feat/traps-dispatch`):** three classes only — **progression**
 ("Album finished!" victory + one per-album unlock in `ap_skeleton_chapters`), **filler** (4
 pure-flavor no-ops — "Scratched disc", ".mov file", "Funny animal .gif", "Concert tickets" in
@@ -509,7 +525,17 @@ green confirmed on first push.)
   `_current_track_container_uri` (not `parent_uri`, so a Mixtape continues through itself) with a
   single-track fallback (never softlock); subsonic backend mirrors it. Made the new default (no
   toggle). Shuffle Trap save/restore is length-agnostic — verified by regression test. +10 headless
-  tests (138 total). Manual GUI playtest still pending. *Original analysis below:*
+  tests (138 total). Manual GUI playtest still pending.
+  - **D7b — cross-album auto-advance — ✅ DONE** (`feat/autoplay-next-album` → `dev`): when an
+    album's queue is exhausted, continue into the **next owned album** (catalog order, wrapping the
+    owned library) that still has an unfinished track, instead of parking at "Finished". Pure
+    `first_unfinished_track` + `next_album_start(ordered_album_uris, current, owned_albums,
+    album_data_cache, track_progress)` in `utils_client` (None only when every owned album is
+    finished); `_autoplay_next_album()` in both backends' park branch (local respects `_trap_playing`;
+    subsonic resolves the current album via `parent_uri`) reusing `populate_track_list` +
+    `build_continuation_queue` + `_play_track_internal`. Settings toggle **"Auto-play next album"**
+    (default ON), persisted. 8 tests. Client-only, no rebuild.
+  *Original analysis below:*
   The queue/auto-advance machinery already exists: `on_playback_finished`
   (`local_files_backend.py:1241`) plays `playback_queue[queue_index+1]`, and `_play_album` queues a
   whole album so it flows track-to-track in order. But **clicking a single track** (`_play_track`
