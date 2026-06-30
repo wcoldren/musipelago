@@ -291,7 +291,7 @@ class LoginPopup(Popup):
             self.dismiss()
 
 
-def _balanced_grid(tracks, packs, size, target_ms=None):
+def _balanced_grid(tracks, packs, size, target_ms=None, rng=None):
     """Fixed `packs` x `size` grid with duration-balanced assignment (A5b).
 
     The track pool is pre-shuffled by build_meta_albums, so the first `need = packs*size` tracks
@@ -301,6 +301,10 @@ def _balanced_grid(tracks, packs, size, target_ms=None):
     currently-lightest bin, or with `target_ms` the bin whose total stays closest to the target.
     This clusters pack run-times tightly around the draw's natural mean instead of the lumpy
     near-equal split the 'packs'/'per_pack' modes produce.
+
+    LPT processes longest-first, so each bin comes out sorted longest->shortest; with `rng` given
+    we re-shuffle WITHIN each pack afterward so the play order isn't predictably descending. This
+    only reorders tracks inside a pack — membership and per-pack duration balance are unchanged.
 
     Grid stays exact when the pool is large enough (pool >= packs*size -> exactly that grid;
     extra tracks are dropped). With too few tracks it keeps `size` and makes ceil(pool/size)
@@ -325,18 +329,22 @@ def _balanced_grid(tracks, packs, size, target_ms=None):
                 best, best_key = b, key
         bins[best].append(t)
         sums[best] += d
+    if rng is not None:
+        for b in bins:
+            rng.shuffle(b)  # mix up the within-pack order (LPT leaves it longest-first)
     return [b for b in bins if b]
 
 
-def _chunk(tracks, mode, count, *, size=None, target_ms=None):
+def _chunk(tracks, mode, count, *, size=None, target_ms=None, rng=None):
     """Split `tracks` into groups. mode='per_pack' -> groups of ~count tracks;
     mode='packs' -> `count` near-equal groups (never empty when count <= len);
     mode='minutes' -> greedily fill packs to ~`count` minutes each (each track
     lands in whichever boundary leaves the pack closest to the target length);
-    mode='grid' -> `count` packs of `size` tracks, duration-balanced (_balanced_grid)."""
+    mode='grid' -> `count` packs of `size` tracks, duration-balanced (_balanced_grid;
+    `rng` re-shuffles within each pack so order isn't longest-first)."""
     count = max(1, int(count))
     if mode == "grid":
-        return _balanced_grid(tracks, packs=count, size=size, target_ms=target_ms)
+        return _balanced_grid(tracks, packs=count, size=size, target_ms=target_ms, rng=rng)
     if mode == "per_pack":
         return [tracks[i : i + count] for i in range(0, len(tracks), count)]
     if mode == "minutes":
@@ -429,7 +437,7 @@ def build_meta_albums(
     if mode != "grid" and subset and 0 < int(subset) < len(tracks):
         tracks = tracks[: int(subset)]
     target_ms = target_minutes * 60 * 1000 if target_minutes else None
-    groups = _chunk(tracks, mode, count, size=pack_size, target_ms=target_ms)
+    groups = _chunk(tracks, mode, count, size=pack_size, target_ms=target_ms, rng=rng)
     service = albums[0].service if albums else "local"
     metas = []
     for i, group in enumerate(groups, start=1):
