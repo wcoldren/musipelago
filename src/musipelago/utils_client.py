@@ -143,6 +143,18 @@ def resolve_track_art(track, container_art):
     return getattr(track, "source_image_url", "") or container_art or KIVY_ICON
 
 
+# --- Album-pane art masking (A3b; pure; hide a Mixtape collage until completed) ---
+def album_art_for_display(image_url, hidden, all_finished):
+    """Album-pane cover to show. In hidden mode an unfinished album hides its cover (a Mixtape
+    collage is built from its songs' covers, so it spoils contents) behind the neutral placeholder
+    until ALL its tracks are finished, at which point the real cover unlocks. Outside hidden mode
+    (or once finished) shows the real art. Unowned rows render the LOCKED tile via the kv ownership
+    gate regardless, so this value only surfaces once owned. Pure (no Kivy) so it tests headlessly."""
+    if hidden and not all_finished:
+        return KIVY_ICON
+    return image_url
+
+
 # --- Now-playing highlight (pure; flag the active row for blue coloring) ---
 def mark_active_rows(rows, active_uri):
     """Set ``is_playing_now`` True on the row whose ``raw_uri`` matches ``active_uri``, False on
