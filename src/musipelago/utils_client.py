@@ -155,6 +155,188 @@ def album_art_for_display(image_url, hidden, all_finished):
     return image_url
 
 
+# --- Stats panel (pure; aggregate progress / listening / AP stats) ---
+def format_hms(ms):
+    """Format a duration in ms as ``H:MM:SS`` (or ``MM:SS`` under an hour). Unlike
+    ``RootLayout.format_duration`` this does NOT wrap at 60 minutes, so it suits multi-hour
+    aggregate totals (time-left / library total). Negative or non-numeric -> "00:00". Pure."""
+    try:
+        total = int(ms) // 1000
+    except (TypeError, ValueError):
+        return "00:00"
+    if total < 0:
+        return "00:00"
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02}:{s:02}" if h else f"{m:02}:{s:02}"
+
+
+def compute_stats(
+    *,
+    track_progress,
+    album_data_cache,
+    owned_albums,
+    ordered_album_uris,
+    checked_locations,
+    missing_locations,
+    received_items,
+    id_to_item_name,
+    current_album_uri=None,
+):
+    """Aggregate client stats as a flat dict. Pure: joins per-track flags (``track_progress``) with
+    per-track durations (``album_data_cache[uri].tracks[].duration_ms``) and AP location/item
+    state. All counts/sums default to 0 on empty input (never divides by zero). No Kivy."""
+    track_progress = track_progress or {}
+    album_data_cache = album_data_cache or {}
+    owned_albums = owned_albums or set()
+    ordered_album_uris = ordered_album_uris or []
+    checked = checked_locations or set()
+    missing = missing_locations or set()
+    received_items = received_items or []
+    id_to_item_name = id_to_item_name or {}
+
+    # Core: checks (AP truth) + albums.
+    checks_found = len(checked)
+    checks_total = len(checked) + len(missing)
+    checks_pct = round(100 * checks_found / checks_total) if checks_total else 0
+    albums_unlocked = len(owned_albums)
+    albums_total = len(ordered_album_uris)
+
+    # Listening time + extras: walk the library tracks once (join with progress).
+    ms_listened = ms_left = ms_total = ms_left_playable = 0
+    durations = []
+    finished_per_album = {}
+    for album_uri, album in album_data_cache.items():
+        for t in getattr(album, "tracks", None) or []:
+            d = getattr(t, "duration_ms", 0) or 0
+            ms_total += d
+            durations.append(d)
+            prog = track_progress.get(getattr(t, "uri", None)) or {}
+            if prog.get("is_finished"):
+                ms_listened += d
+                finished_per_album[album_uri] = finished_per_album.get(album_uri, 0) + 1
+            else:
+                ms_left += d
+                if (prog.get("parent_uri") or album_uri) in owned_albums:
+                    ms_left_playable += d
+
+    track_count = len(durations)
+    track_avg_ms = round(sum(durations) / track_count) if track_count else 0
+
+    # AP details.
+    hints_active = sum(1 for p in track_progress.values() if (p or {}).get("hint_text") is not None)
+    albums_finished = sum(
+        1 for it in received_items if id_to_item_name.get(it.get("item")) == "Album finished!"
+    )
+
+    # Current displayed/playing album progress.
+    cur_total = cur_finished = cur_ms_total = cur_ms_left = 0
+    cur_album = album_data_cache.get(current_album_uri) if current_album_uri else None
+    if cur_album:
+        for t in getattr(cur_album, "tracks", None) or []:
+            d = getattr(t, "duration_ms", 0) or 0
+            cur_total += 1
+            cur_ms_total += d
+            if (track_progress.get(getattr(t, "uri", None)) or {}).get("is_finished"):
+                cur_finished += 1
+            else:
+                cur_ms_left += d
+
+    return {
+        "checks_found": checks_found,
+        "checks_total": checks_total,
+        "checks_pct": checks_pct,
+        "albums_unlocked": albums_unlocked,
+        "albums_total": albums_total,
+        "ms_listened": ms_listened,
+        "ms_left": ms_left,
+        "ms_total": ms_total,
+        "ms_left_playable": ms_left_playable,
+        "items_received": len(received_items),
+        "hints_active": hints_active,
+        "albums_finished": albums_finished,
+        "victory": albums_total > 0 and albums_finished >= albums_total,
+        "track_count": track_count,
+        "track_longest_ms": max(durations) if durations else 0,
+        "track_shortest_ms": min(durations) if durations else 0,
+        "track_avg_ms": track_avg_ms,
+        "mixtapes_touched": len([k for k, v in finished_per_album.items() if v > 0]),
+        "current_album_total": cur_total,
+        "current_album_finished": cur_finished,
+        "current_album_ms_total": cur_ms_total,
+        "current_album_ms_left": cur_ms_left,
+    }
+
+
+def build_stats_rows(stats):
+    """Ordered display rows for the stats panel: a list of ``{label, value, kind}`` where ``kind``
+    is "header" or "stat". Pure; the panel renders this verbatim (so the shown set is data-driven).
+    Durations formatted via ``format_hms``."""
+    s = stats
+    cur = ""
+    if s["current_album_total"]:
+        cur = (
+            f"{s['current_album_finished']} / {s['current_album_total']}  "
+            f"({format_hms(s['current_album_ms_left'])} left)"
+        )
+    sections = [
+        (
+            "Progress",
+            [
+                (
+                    "Checks found",
+                    f"{s['checks_found']} / {s['checks_total']}  ({s['checks_pct']}%)",
+                ),
+                ("Albums unlocked", f"{s['albums_unlocked']} / {s['albums_total']}"),
+                ("Albums finished", f"{s['albums_finished']} / {s['albums_total']}"),
+            ],
+        ),
+        (
+            "Listening",
+            [
+                ("Time left", format_hms(s["ms_left"])),
+                ("Playable now", format_hms(s["ms_left_playable"])),
+                ("Time listened", format_hms(s["ms_listened"])),
+                ("Library total", format_hms(s["ms_total"])),
+            ],
+        ),
+        (
+            "Archipelago",
+            [
+                ("Items received", str(s["items_received"])),
+                ("Hints active", str(s["hints_active"])),
+                ("Victory", "Yes" if s["victory"] else "No"),
+            ],
+        ),
+        (
+            "Extras",
+            [
+                *([("Current album", cur)] if cur else []),
+                ("Tracks", str(s["track_count"])),
+                ("Longest track", format_hms(s["track_longest_ms"])),
+                ("Shortest track", format_hms(s["track_shortest_ms"])),
+                ("Avg track", format_hms(s["track_avg_ms"])),
+                ("Mixtapes touched", str(s["mixtapes_touched"])),
+            ],
+        ),
+    ]
+    rows = []
+    for title, stat_list in sections:
+        rows.append({"label": title, "value": "", "kind": "header"})
+        for label, value in stat_list:
+            rows.append({"label": label, "value": value, "kind": "stat"})
+    return rows
+
+
+def clamp_panel_width(w, lo, hi):
+    """Clamp a panel width to ``[lo, hi]`` (for the stats drag handle). Pure."""
+    try:
+        w = float(w)
+    except (TypeError, ValueError):
+        return lo
+    return max(lo, min(hi, w))
+
+
 # --- Now-playing highlight (pure; flag the active row for blue coloring) ---
 def mark_active_rows(rows, active_uri):
     """Set ``is_playing_now`` True on the row whose ``raw_uri`` matches ``active_uri``, False on
