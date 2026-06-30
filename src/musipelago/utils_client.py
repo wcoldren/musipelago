@@ -367,6 +367,32 @@ def eligible_skip_tracks(track_progress, owned_albums):
     ]
 
 
+# --- Boon inventory (A8; pure; held/spend accounting + targeting eligibility) ---
+def tally_by_name(received_items, id_to_item_name, names):
+    """Count received items whose resolved name is in ``names``, bucketed by name -> ``{name:
+    count}`` (names with 0 omitted). Generalizes ``count_pending_traps``; reused for the trap tally
+    and the boon received-count. Pure (no Kivy)."""
+    counts = {}
+    if not names:
+        return counts
+    for item in received_items or []:
+        name = id_to_item_name.get(item.get("item"))
+        if name in names:
+            counts[name] = counts.get(name, 0) + 1
+    return counts
+
+
+def boon_target_ok(name, is_finished, can_reveal):
+    """Whether a held boon ``name`` may be spent on a clicked track row. A Skip Token needs an
+    unfinished track (releasing its check); a Reveal Token needs a still-masked row (``can_reveal``).
+    Other/unknown names -> False. Pure (no Kivy)."""
+    if name == "Skip Token":
+        return not is_finished
+    if name == "Reveal Token":
+        return bool(can_reveal)
+    return False
+
+
 # --- Cross-album auto-advance (extends D7; pure) ---
 def first_unfinished_track(album, track_progress):
     """URI of the first track in ``album`` not yet finished (per ``track_progress``), else None.
