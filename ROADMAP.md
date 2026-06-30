@@ -389,6 +389,22 @@ Pure helpers headless-tested (`tests/test_track_origin.py`); 7 tests.
   isn't the local-files target, so it's deferred. Build a fresh apworld via `musipelago-gen` to see the
   feature (existing catalogs have no `source_*` → fall back to today's behavior).
 
+### B7. Stats panel (collapsible, drag-resizable) — 🟡 · client — ✅ **DONE**
+**DONE** (`feat/stats-panel` → `dev`): a right-side **Stats panel** showing aggregate progress, all
+computed **client-side as pure functions** (no network, no rebuild). Mirrors the B4 chat panel: a third
+`<RootLayout>` child, a "Stats" toggle in the playback bar, a `StatRow` RecycleView viewclass, themed via
+`app.col_*`. **Drag-resizable** via a new `StatsDragHandle` (drag the panel's left edge; clamped
+240–560dp) — the only resizable widget in the client; `stats_panel_open` + `stats_panel_width` persisted
+in `client_settings`. Pure `compute_stats`/`build_stats_rows`/`format_hms` (HH:MM:SS — the existing
+`format_duration` wraps at 60 min)/`clamp_panel_width` in `utils_client` (13 tests). Stats shown: checks
+found/total/%, albums unlocked/finished/total, time **left / playable-now / listened / library-total**,
+items received, hints active, victory, current-album progress, longest/shortest/avg track, mixtapes
+touched. `refresh_stats()` is event-driven (track finish / album unlock / `RoomUpdate` / `ReceivedItems`
+/ panel open), guarded + skipped when the panel is closed.
+- **Backlog:** "pick which stats" (per-stat toggles) — `build_stats_rows` is data-driven so a filter is
+  easy to add later; an always-on one-line footer summary; drag-resize is the one net-new interaction
+  (clamp math unit-tested, the widget itself only by the kv-parse test + GUI playtest).
+
 ## C. Foundation / robustness (make play reliable)
 
 ### C1. AP auto-reconnect — 🔴 · client · upstream? — **high value for real play**
