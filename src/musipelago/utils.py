@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import statistics
 import sys
 
 # dotenv is no longer needed here
@@ -37,6 +38,73 @@ KIVY_ICON = resource_path(os.path.join("resources", "album_placeholder.png"))
 
 # Placeholder shown for locked (not-yet-unlocked) albums in the client list.
 LOCKED_ICON = resource_path(os.path.join("resources", "locked_placeholder.png"))
+
+# --- Corpus / pack stats (pure; used by the gen app's curation strip + preview) ---
+
+
+def corpus_stats(albums):
+    """Aggregate duration/track stats over every track in ``albums`` (a list of
+    ``GenericAlbum``). Pure — flattens exactly like ``build_meta_albums``
+    (``for album in albums for t in album.tracks``) and joins nothing else.
+
+    Returns a flat dict: ``n_albums, n_tracks, total_ms, mean_ms, median_ms,
+    min_ms, max_ms, n_unknown``. Tracks whose ``duration_ms`` is falsy (None/0 —
+    e.g. local files without a probed length) count toward ``n_tracks`` and
+    ``n_unknown`` but are excluded from every duration statistic; duration stats
+    are 0 when no track has a known length (never divides by zero)."""
+    n_tracks = 0
+    durations = []
+    for album in albums:
+        for t in album.tracks:
+            n_tracks += 1
+            d = t.duration_ms or 0
+            if d:
+                durations.append(d)
+    return {
+        "n_albums": len(albums),
+        "n_tracks": n_tracks,
+        "total_ms": sum(durations),
+        "mean_ms": int(statistics.fmean(durations)) if durations else 0,
+        "median_ms": int(statistics.median(durations)) if durations else 0,
+        "min_ms": min(durations) if durations else 0,
+        "max_ms": max(durations) if durations else 0,
+        "n_unknown": n_tracks - len(durations),
+    }
+
+
+def pack_layout_summary(albums):
+    """Per-pack layout stats for a list of ``GenericAlbum`` — real albums or the
+    synthetic metas from ``build_meta_albums`` (both expose ``.tracks`` with
+    ``duration_ms``). Pure. Returns ``n_packs, n_tracks`` and per-pack whole-minute
+    durations as ``min_min / median_min / max_min`` (all 0 when empty)."""
+    pack_minutes = []
+    n_tracks = 0
+    for album in albums:
+        n_tracks += len(album.tracks)
+        pack_minutes.append(sum(t.duration_ms or 0 for t in album.tracks) // 60000)
+    return {
+        "n_packs": len(albums),
+        "n_tracks": n_tracks,
+        "min_min": min(pack_minutes) if pack_minutes else 0,
+        "median_min": int(statistics.median(pack_minutes)) if pack_minutes else 0,
+        "max_min": max(pack_minutes) if pack_minutes else 0,
+    }
+
+
+def format_hm(ms):
+    """Compact whole-minute duration for aggregate totals: ``'3h 52m'`` / ``'52m'``
+    / ``'0m'``. Rounds down to the minute (matches the per-pack minute math).
+    Negative or non-numeric -> ``'0m'``. Pure. For per-track ``M:SS`` / ``H:MM:SS``
+    reuse ``utils_client.format_hms``."""
+    try:
+        total_min = int(ms) // 60000
+    except (TypeError, ValueError):
+        return "0m"
+    if total_min < 0:
+        return "0m"
+    h, m = divmod(total_min, 60)
+    return f"{h}h {m}m" if h else f"{m}m"
+
 
 # --- Jinja2 Filters ---
 
