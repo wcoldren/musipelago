@@ -165,6 +165,50 @@ def test_boon_items_and_slotdata_rendered(rendered):
     assert "EnableBoons:" in opts and "BoonPercentage:" in opts
 
 
+def _render_items(albums):
+    env = Environment(loader=FileSystemLoader(TPL))
+    env.filters["to_ascii"] = filter_to_ascii
+    env.filters["py_json"] = filter_py_json
+    return env.get_template("Items.py.j2").render(
+        {"apworld_data": albums, "apworld_name": "Filler"}
+    )
+
+
+@pytest.mark.parametrize("n_albums", [1, 3])
+def test_itempool_filler_subtracts_victory_count(n_albums):
+    """Pre-flight fix: the filler budget must subtract the number of albums that get a
+    locked 'Album finished!' victory location (one per album *with tracks*), not a bare 1.
+    Otherwise the pool comes out N-1 items over for N albums."""
+    albums = [_album(f"alb{i}", 4, "Bandit") for i in range(n_albums)]
+    txt = _render_items(albums)
+    # One locked victory placement per album-with-tracks...
+    assert txt.count('create_item(world, "Album finished!")') == n_albums
+    # ...and the junk-count formula subtracts exactly that many.
+    m = re.search(r"get_total_locations\(world\)\s*-\s*len\(itempool\)\s*-\s*(\d+)\)", txt)
+    assert m and int(m.group(1)) == n_albums
+
+
+def test_itempool_filler_ignores_trackless_albums():
+    """Albums without tracks place no victory item, so they must not be subtracted."""
+    albums = [_album("alb1", 4, "Bandit"), _album("alb2", 5, "Other")]
+    albums.append(
+        GenericAlbum(
+            uri="empty",
+            title="empty",
+            artist="Nobody",
+            image_url="",
+            total_tracks=0,
+            album_type="Album",
+            service="local",
+            tracks=[],
+        )
+    )
+    txt = _render_items(albums)
+    assert txt.count('create_item(world, "Album finished!")') == 2
+    m = re.search(r"get_total_locations\(world\)\s*-\s*len\(itempool\)\s*-\s*(\d+)\)", txt)
+    assert m and int(m.group(1)) == 2
+
+
 def test_subset_shrinks_rendered_location_count(tmp_path):
     """A5: a `subset=K` build must bake exactly K AP locations into the rendered
     world — proving the check-count knob really shrinks the location pool."""
