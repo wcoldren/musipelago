@@ -271,6 +271,91 @@ def test_apworld_warn_plural_and_all_unknown_omits_duration_stats():
     assert stub.apworld_warn == "· 3 unknown lengths"
 
 
+# --- GeneratePopup layout preview -----------------------------------------
+
+
+class _Ids(dict):
+    """Stand-in for Kivy's ids: supports both ``ids.foo`` and ``"foo" in ids``."""
+
+    __getattr__ = dict.__getitem__
+
+
+def _ctrl(**kw):
+    return types.SimpleNamespace(**kw)
+
+
+def _preview_stub(albums, ids):
+    stub = types.SimpleNamespace(apworld_data=albums, ids=ids, preview_text="")
+    stub._read_meta_config = types.MethodType(g.GeneratePopup._read_meta_config, stub)
+    stub._refresh_preview = types.MethodType(g.GeneratePopup._refresh_preview, stub)
+    stub._format_preview = g.GeneratePopup._format_preview  # staticmethod
+    return stub
+
+
+def test_format_preview_empty_and_enabled_and_disabled():
+    fmt = g.GeneratePopup._format_preview
+    assert fmt(
+        {"n_packs": 0, "n_tracks": 0, "min_min": 0, "median_min": 0, "max_min": 0}, enabled=True
+    ) == ("Preview: add albums to see the pack layout.")
+    assert (
+        fmt(
+            {"n_packs": 10, "n_tracks": 68, "min_min": 21, "median_min": 24, "max_min": 26},
+            enabled=True,
+        )
+        == "Preview: 10 packs · 68 tracks · 21–26 min/pack (median 24)"
+    )
+    assert (
+        fmt(
+            {"n_packs": 14, "n_tracks": 68, "min_min": 21, "median_min": 24, "max_min": 26},
+            enabled=False,
+        )
+        == "Preview (no regrouping): 14 albums · 68 tracks · 21–26 min/album (median 24)"
+    )
+    # uniform packs collapse to a single figure (no median)
+    assert (
+        fmt(
+            {"n_packs": 1, "n_tracks": 3, "min_min": 9, "median_min": 9, "max_min": 9}, enabled=True
+        )
+        == "Preview: 1 pack · 3 tracks · 9 min/pack"
+    )
+
+
+def test_refresh_preview_disabled_summarizes_real_albums():
+    ids = _Ids(meta_preview=_ctrl(), meta_enable=_ctrl(state="normal"))
+    stub = _preview_stub([_album("a", 3), _album("b", 2)], ids)  # 3min/track
+    stub._refresh_preview()
+    # album a: 9 min, album b: 6 min -> range 6–9, median 7 (of [6, 9]).
+    assert stub.preview_text == (
+        "Preview (no regrouping): 2 albums · 5 tracks · 6–9 min/album (median 7)"
+    )
+
+
+def test_refresh_preview_enabled_rolls_and_backfills_blank_seed():
+    ids = _Ids(
+        meta_preview=_ctrl(),
+        meta_enable=_ctrl(state="down"),
+        meta_mode=_ctrl(text="N packs"),
+        meta_count=_ctrl(text="2"),
+        meta_seed=_ctrl(text=""),
+        meta_subset=_ctrl(text=""),
+        meta_shuffle=_ctrl(state="down"),
+        meta_pack_size=_ctrl(text="5"),
+        meta_target_min=_ctrl(text=""),
+    )
+    stub = _preview_stub([_album("a", 3), _album("b", 3)], ids)  # 6 tracks, 3min each
+    stub._refresh_preview()
+    # 2 packs of 3 tracks -> 9 min each (uniform).
+    assert stub.preview_text == "Preview: 2 packs · 6 tracks · 9 min/pack"
+    # blank seed was rolled and written back so generation reproduces the preview.
+    assert ids.meta_seed.text.isdigit()
+
+    # Re-running with the now-filled seed keeps the same layout (no re-roll surprise).
+    kept = ids.meta_seed.text
+    stub._refresh_preview()
+    assert ids.meta_seed.text == kept
+    assert stub.preview_text == "Preview: 2 packs · 6 tracks · 9 min/pack"
+
+
 # --- gen_settings persistence (theme + last_directory coexist) -------------
 
 

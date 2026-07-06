@@ -276,6 +276,7 @@
     size_hint: 0.8, None
     auto_dismiss: False
     height: generate_box.height + dp(64)
+    on_open: root._refresh_preview()
 
     BoxLayout:
         id: generate_box
@@ -328,6 +329,7 @@
             height: '40dp'
             text: ('[x]  ' if self.state == 'down' else '[  ]  ') + 'Reshuffle my tracks into custom mixtapes'
             halign: 'center'
+            on_state: root._schedule_preview()
 
         Label:
             text: 'Otherwise each album is generated as-is. Choose how tracks are grouped:'
@@ -361,6 +363,7 @@
                 text: 'N packs'
                 values: ['N packs', 'Tracks per pack', 'Minutes per pack', 'Balanced grid']
                 size_hint_x: 0.45
+                on_text: root._schedule_preview()
 
             Label:
                 text: 'Amount'
@@ -377,6 +380,7 @@
                 multiline: False
                 write_tab: False
                 size_hint_x: 0.2
+                on_text: root._schedule_preview()
 
         # 'Balanced grid' extras: songs-per-pack (M) + optional target min/pack.
         # Collapses (height 0, hidden) unless Balanced grid is selected.
@@ -403,6 +407,7 @@
                 multiline: False
                 write_tab: False
                 size_hint_x: 0.16
+                on_text: root._schedule_preview()
 
             Label:
                 text: 'Target min/pack'
@@ -419,6 +424,7 @@
                 multiline: False
                 write_tab: False
                 size_hint_x: 0.16
+                on_text: root._schedule_preview()
 
         BoxLayout:
             orientation: 'horizontal'
@@ -443,6 +449,7 @@
                 multiline: False
                 write_tab: False
                 size_hint_x: 0.18
+                on_text: root._schedule_preview()
 
             Label:
                 text: 'tracks (blank = all)'
@@ -458,6 +465,7 @@
                 size_hint_x: None
                 width: '96dp'
                 text: 'Shuffle: ON' if self.state == 'down' else 'Shuffle: OFF'
+                on_state: root._schedule_preview()
 
             Label:
                 text: 'Seed'
@@ -474,6 +482,20 @@
                 multiline: False
                 write_tab: False
                 size_hint_x: 0.18
+                on_text: root._schedule_preview()
+
+        # Dry-run preview of the resulting pack layout (updates as the controls
+        # change; when disabled it summarizes the real albums as-is).
+        Label:
+            id: meta_preview
+            text: root.preview_text
+            color: app.col_text_dim
+            font_size: '13sp'
+            size_hint_y: None
+            height: self.texture_size[1]
+            text_size: self.width, None
+            halign: 'left'
+            valign: 'middle'
 
         BoxLayout:
             orientation: 'horizontal'

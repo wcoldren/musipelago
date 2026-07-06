@@ -96,6 +96,7 @@ from musipelago.utils import (
     filter_py_json,
     filter_to_ascii,
     format_hm,
+    pack_layout_summary,
 )
 from musipelago.utils_client import format_hms
 
@@ -506,9 +507,65 @@ def build_starter_yaml(apworld_name):
 class GeneratePopup(Popup):
     apworld_data = ObjectProperty(None)  # This will be a list of GenericAlbum
 
+    # Dry-run layout preview line (bound to a Label in the kv). Recomputed —
+    # debounced — whenever the mixtape controls change; see _refresh_preview.
+    preview_text = StringProperty("")
+
     def __init__(self, apworld_data, **kwargs):
         super().__init__(**kwargs)
         self.apworld_data = apworld_data  # List of GenericAlbum objects
+        self._preview_ev = None
+
+    def _schedule_preview(self, *args):
+        """Debounce preview recomputes so typing in a numeric field doesn't
+        rebuild the layout per keystroke."""
+        if self._preview_ev is not None:
+            self._preview_ev.cancel()
+        self._preview_ev = Clock.schedule_once(self._refresh_preview, 0.3)
+
+    def _refresh_preview(self, *args):
+        """Recompute the pack-layout preview from the live controls. When the
+        mixtape randomizer is enabled, this dry-runs build_meta_albums with the
+        current config (rolling + backfilling a seed when the field is blank so
+        the eventual generation reproduces exactly what was previewed); when it
+        is disabled it summarizes the real albums as-is."""
+        if "meta_preview" not in self.ids:  # kv not built yet
+            return
+        albums = self.apworld_data or []
+        cfg = self._read_meta_config()
+        if cfg.get("enabled"):
+            translated = {k: v for k, v in cfg.items() if k != "enabled"}
+            # build_meta_albums(seed=None) would use a fresh RNG, so the preview
+            # wouldn't match generation. Roll a seed, show it, and preview with it.
+            if translated.get("seed") is None and "meta_seed" in self.ids:
+                rolled = random.randrange(0, 2**31)
+                self.ids.meta_seed.text = str(rolled)
+                translated["seed"] = rolled
+            try:
+                metas = build_meta_albums(albums, **translated)
+            except Exception as e:
+                Logger.warning(f"Preview: could not build layout: {e}")
+                self.preview_text = "Preview: unavailable for the current settings."
+                return
+            self.preview_text = self._format_preview(pack_layout_summary(metas), enabled=True)
+        else:
+            self.preview_text = self._format_preview(pack_layout_summary(albums), enabled=False)
+
+    @staticmethod
+    def _format_preview(summary, *, enabled):
+        """One-line pack-layout preview from a pack_layout_summary dict."""
+        n = summary["n_packs"]
+        if not n:
+            return "Preview: add albums to see the pack layout."
+        unit = "pack" if enabled else "album"
+        label = "Preview" if enabled else "Preview (no regrouping)"
+        n_tracks = summary["n_tracks"]
+        lo, med, hi = summary["min_min"], summary["median_min"], summary["max_min"]
+        span = f"{lo} min/{unit}" if lo == hi else f"{lo}–{hi} min/{unit} (median {med})"
+        return (
+            f"{label}: {n} {unit}{'s' if n != 1 else ''} · "
+            f"{n_tracks} track{'s' if n_tracks != 1 else ''} · {span}"
+        )
 
     def on_popup_generate(self, apworld_name):
         app = App.get_running_app()
