@@ -452,9 +452,26 @@
                 on_text: root._schedule_preview()
 
             Label:
-                text: 'tracks (blank = all)'
+                text: 'tracks or'
                 size_hint_x: None
-                width: '130dp'
+                width: '66dp'
+                halign: 'left'
+                valign: 'middle'
+                text_size: self.size
+
+            TextInput:
+                id: meta_subset_min
+                hint_text: 'min'
+                input_filter: 'int'
+                multiline: False
+                write_tab: False
+                size_hint_x: 0.18
+                on_text: root._schedule_preview()
+
+            Label:
+                text: 'min (blank = all)'
+                size_hint_x: None
+                width: '112dp'
                 halign: 'left'
                 valign: 'middle'
                 text_size: self.size

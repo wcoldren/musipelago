@@ -393,6 +393,7 @@ def build_meta_albums(
     count,
     seed=None,
     subset=None,
+    subset_minutes=None,
     shuffle=True,
     pack_size=None,
     target_minutes=None,
@@ -419,6 +420,12 @@ def build_meta_albums(
       order. None/0/>= pool size keeps every track. Fewer tracks => fewer AP
       locations, baked into the generated `.apworld`. Ignored in 'grid' mode
       (the grid's count*pack_size defines the track count).
+    - `subset_minutes`: a duration budget (in minutes) analogous to `subset` but
+      by playtime. Applied after shuffle and after the count `subset`, it keeps
+      tracks in order until their cumulative `duration_ms` reaches the budget
+      (including the track that crosses it, so total >= budget), then drops the
+      rest. Tracks with unknown duration don't advance the budget. None/0
+      disables; ignored in 'grid' mode.
     - `pack_size`/`target_minutes` ('grid' mode only): exact `count` packs of
       `pack_size` songs each, duration-balanced toward an optional soft
       `target_minutes` per pack (see _balanced_grid).
@@ -441,9 +448,18 @@ def build_meta_albums(
     if shuffle:
         rng.shuffle(tracks)
     # 'grid' derives its own track count (count*pack_size) inside _balanced_grid;
-    # the global subset cap only applies to the other modes.
+    # the global subset caps only apply to the other modes.
     if mode != "grid" and subset and 0 < int(subset) < len(tracks):
         tracks = tracks[: int(subset)]
+    if mode != "grid" and subset_minutes and int(subset_minutes) > 0:
+        budget_ms = int(subset_minutes) * 60 * 1000
+        kept, acc = [], 0
+        for t in tracks:
+            kept.append(t)
+            acc += t.duration_ms or 0
+            if acc >= budget_ms:
+                break
+        tracks = kept
     target_ms = target_minutes * 60 * 1000 if target_minutes else None
     groups = _chunk(tracks, mode, count, size=pack_size, target_ms=target_ms, rng=rng)
     service = albums[0].service if albums else "local"
@@ -602,6 +618,13 @@ class GeneratePopup(Popup):
             subset = int(subset_text) if subset_text else None
         except ValueError:
             subset = None
+        subset_min_text = (
+            (ids.meta_subset_min.text or "").strip() if "meta_subset_min" in ids else ""
+        )
+        try:
+            subset_minutes = int(subset_min_text) if subset_min_text else None
+        except ValueError:
+            subset_minutes = None
         shuffle = ids.meta_shuffle.state == "down" if "meta_shuffle" in ids else True
         # 'Balanced grid' (mode='grid') extras: songs-per-pack (M) + optional target min/pack.
         try:
@@ -619,6 +642,7 @@ class GeneratePopup(Popup):
             "count": count,
             "seed": seed,
             "subset": subset,
+            "subset_minutes": subset_minutes,
             "shuffle": shuffle,
             "pack_size": pack_size,
             "target_minutes": target_minutes,
@@ -679,6 +703,7 @@ class GeneratePopup(Popup):
                     count=meta_config["count"],
                     seed=meta_config.get("seed"),
                     subset=meta_config.get("subset"),
+                    subset_minutes=meta_config.get("subset_minutes"),
                     shuffle=meta_config.get("shuffle", True),
                     pack_size=meta_config.get("pack_size"),
                     target_minutes=meta_config.get("target_minutes"),

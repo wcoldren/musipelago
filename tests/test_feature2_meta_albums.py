@@ -178,6 +178,55 @@ def _timed_album(uri, n, dur_ms):
     )
 
 
+# --- subset_minutes: duration-budget subset (mirrors count `subset`) --------
+
+
+def test_subset_minutes_keeps_tracks_until_budget():
+    # 5 tracks of 60s; budget 3 min (180s) -> keep 3 (cumulative 180s hits budget).
+    src = [_timed_album("a", 5, 60_000)]
+    metas = g.build_meta_albums(src, mode="per_pack", count=100, shuffle=False, subset_minutes=3)
+    assert sum(len(m.tracks) for m in metas) == 3
+
+
+def test_subset_minutes_includes_the_crossing_track():
+    # 3 tracks of 100s; budget 2 min (120s) -> keep 2 (100+100=200s >= 120s).
+    src = [_timed_album("a", 3, 100_000)]
+    metas = g.build_meta_albums(src, mode="per_pack", count=100, shuffle=False, subset_minutes=2)
+    assert sum(len(m.tracks) for m in metas) == 2
+
+
+def test_subset_minutes_none_or_zero_keeps_all():
+    src = [_timed_album("a", 5, 60_000)]
+    for sm in (None, 0):
+        metas = g.build_meta_albums(
+            src, mode="per_pack", count=100, shuffle=False, subset_minutes=sm
+        )
+        assert sum(len(m.tracks) for m in metas) == 5
+
+
+def test_subset_minutes_unknown_durations_do_not_advance_budget():
+    # all-zero durations never reach the budget -> nothing is dropped.
+    src = [_timed_album("a", 6, 0)]
+    metas = g.build_meta_albums(src, mode="per_pack", count=100, shuffle=False, subset_minutes=1)
+    assert sum(len(m.tracks) for m in metas) == 6
+
+
+def test_subset_minutes_ignored_in_grid_mode():
+    # grid derives its own count*pack_size track count; the minutes budget is ignored.
+    src = [_timed_album("a", 20, 60_000)]
+    metas = g.build_meta_albums(src, mode="grid", count=2, pack_size=5, seed=1, subset_minutes=1)
+    assert sum(len(m.tracks) for m in metas) == 10
+
+
+def test_subset_minutes_composes_with_count_subset():
+    # count subset caps to 4 first; a generous minutes budget then keeps all 4.
+    src = [_timed_album("a", 10, 60_000)]
+    metas = g.build_meta_albums(
+        src, mode="per_pack", count=100, shuffle=False, subset=4, subset_minutes=100
+    )
+    assert sum(len(m.tracks) for m in metas) == 4
+
+
 def test_minutes_mode_packs_to_target_duration():
     # 12 tracks of 3 minutes; target 9 min -> packs of ~3 tracks.
     src = [_timed_album("timed", 12, 3 * 60 * 1000)]

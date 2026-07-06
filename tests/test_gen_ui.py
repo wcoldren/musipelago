@@ -439,6 +439,7 @@ def test_read_meta_config_reads_toggle_states():
         "count": 12,
         "seed": None,
         "subset": 8,
+        "subset_minutes": None,  # meta_subset_min absent -> None
         "shuffle": False,
         "pack_size": None,  # grid-only fields absent -> None
         "target_minutes": None,
@@ -463,10 +464,25 @@ def test_read_meta_config_reads_balanced_grid():
         "count": 10,
         "seed": 3,
         "subset": None,
+        "subset_minutes": None,
         "shuffle": True,
         "pack_size": 5,
         "target_minutes": 20,
     }
+
+
+def test_read_meta_config_reads_subset_minutes():
+    p = _meta_popup(
+        meta_enable=types.SimpleNamespace(state="down"),
+        meta_mode=types.SimpleNamespace(text="N packs"),
+        meta_count=types.SimpleNamespace(text="4"),
+        meta_seed=types.SimpleNamespace(text=""),
+        meta_subset=types.SimpleNamespace(text=""),
+        meta_subset_min=types.SimpleNamespace(text="45"),
+        meta_shuffle=types.SimpleNamespace(state="down"),
+    )
+    cfg = p._read_meta_config()
+    assert cfg["subset"] is None and cfg["subset_minutes"] == 45
 
 
 def test_read_meta_config_grid_blank_target_is_none():
