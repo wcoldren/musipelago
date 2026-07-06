@@ -189,6 +189,10 @@ def _summary_stub(albums):
         list_two_data=[], apworld_summary="", apworld_warn="", apworld_data=albums
     )
     stub.refresh_apworld_view = types.MethodType(g.ListContainer.refresh_apworld_view, stub)
+    stub._update_summary = types.MethodType(g.ListContainer._update_summary, stub)
+    stub.included_albums = types.MethodType(g.ListContainer.included_albums, stub)
+    stub.set_album_included = types.MethodType(g.ListContainer.set_album_included, stub)
+    stub.select_all_albums = types.MethodType(g.ListContainer.select_all_albums, stub)
     return stub
 
 
@@ -271,6 +275,63 @@ def test_apworld_warn_plural_and_all_unknown_omits_duration_stats():
     assert stub.apworld_warn == "· 3 unknown lengths"
 
 
+# --- album include/exclude selection --------------------------------------
+
+
+def test_row_dicts_carry_included_flag_default_true():
+    stub = _summary_stub([_album("a", 2)])
+    stub.refresh_apworld_view()
+    assert stub.list_two_data[0]["included"] is True
+
+
+def test_summary_counts_only_included_albums():
+    a, b = _album("a", 3), _album("b", 2)  # 3:00 tracks
+    stub = _summary_stub([a, b])
+    stub.refresh_apworld_view()
+    assert stub.apworld_summary.startswith("Your APWorld — 2 albums · 5 tracks")
+    # exclude album b -> "N of M albums" and only a's tracks/duration counted.
+    stub.set_album_included(b, False)
+    assert stub.apworld_summary.startswith("Your APWorld — 1 of 2 albums · 3 tracks · 9m")
+
+
+def test_select_none_then_all_updates_rows_and_summary():
+    a, b = _album("a", 3), _album("b", 2)
+    stub = _summary_stub([a, b])
+    stub.select_all_albums(False)
+    assert stub.apworld_summary.startswith("Your APWorld — 0 of 2 albums · 0 tracks")
+    assert all(row["included"] is False for row in stub.list_two_data)
+    stub.select_all_albums(True)
+    assert stub.apworld_summary.startswith("Your APWorld — 2 albums · 5 tracks")
+    assert all(row["included"] is True for row in stub.list_two_data)
+
+
+def test_custom_list_item_toggle_included_persists_and_refreshes(monkeypatch):
+    album = _album("a", 2)
+    container = _summary_stub([album])
+    container.refresh_apworld_view()
+    fake_app = types.SimpleNamespace(
+        root=types.SimpleNamespace(ids=types.SimpleNamespace(list_container=container))
+    )
+    monkeypatch.setattr(g, "App", types.SimpleNamespace(get_running_app=lambda: fake_app))
+
+    row = types.SimpleNamespace(included=True, generic_item=album)
+    row.toggle_included = types.MethodType(g.CustomListItem.toggle_included, row)
+    row.toggle_included()
+    assert row.included is False
+    assert album._included is False
+    assert container.apworld_summary.startswith("Your APWorld — 0 of 1 albums")
+
+
+def test_preview_counts_only_included_albums():
+    ids = _Ids(meta_preview=_ctrl(), meta_enable=_ctrl(state="normal"))
+    a, b = _album("a", 3), _album("b", 2)
+    b._included = False
+    stub = _preview_stub([a, b], ids)
+    stub._refresh_preview()
+    # only album a (3 tracks, 9 min) is carried forward.
+    assert stub.preview_text == "Preview (no regrouping): 1 album · 3 tracks · 9 min/album"
+
+
 # --- GeneratePopup layout preview -----------------------------------------
 
 
@@ -288,6 +349,7 @@ def _preview_stub(albums, ids):
     stub = types.SimpleNamespace(apworld_data=albums, ids=ids, preview_text="")
     stub._read_meta_config = types.MethodType(g.GeneratePopup._read_meta_config, stub)
     stub._refresh_preview = types.MethodType(g.GeneratePopup._refresh_preview, stub)
+    stub.included_albums = types.MethodType(g.GeneratePopup.included_albums, stub)
     stub._format_preview = g.GeneratePopup._format_preview  # staticmethod
     return stub
 

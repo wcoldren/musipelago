@@ -146,6 +146,20 @@
             halign: 'left'
             valign: 'middle'
 
+        # Bulk include/exclude for the checkboxes below. Hidden when the list is empty.
+        BoxLayout:
+            size_hint_y: None
+            height: dp(28) if root.apworld_data else 0
+            opacity: 1 if root.apworld_data else 0
+            spacing: dp(6)
+
+            Button:
+                text: 'Select all'
+                on_release: root.select_all_albums(True)
+            Button:
+                text: 'Select none'
+                on_release: root.select_all_albums(False)
+
         # Second summary line: shown (warning color) only when some tracks lack a
         # probed duration; collapses to zero height when apworld_warn is empty.
         Label:
@@ -203,12 +217,28 @@
             size: self.width - dp(8), self.height - dp(8)
             radius: [dp(theme.RADIUS)]
 
+    # Include checkbox — apworld rows only. Non-destructive: unchecked albums are
+    # kept in the list but skipped in stats/preview/generation. on_release only
+    # fires on user clicks, so rebinding the row never toggles the flag.
+    Button:
+        text: '[x]' if root.included else '[  ]'
+        font_size: '16sp'
+        size_hint_x: None
+        width: dp(40) if root.list_id == 'apworld' else 0
+        opacity: 1 if root.list_id == 'apworld' else 0
+        disabled: root.list_id != 'apworld'
+        background_color: 0, 0, 0, 0
+        color: app.col_accent if root.included else app.col_text_dim
+        on_release: root.toggle_included()
+
     AsyncImageWithHeaders:
         web_source: root.image_source
         size_hint_x: None
         width: dp(72)
+        opacity: 1 if (root.included or root.list_id != 'apworld') else 0.4
     BoxLayout:
         orientation: 'vertical'
+        opacity: 1 if (root.included or root.list_id != 'apworld') else 0.4
 
         Label:
             text: root.text_line_1

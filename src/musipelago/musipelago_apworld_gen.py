@@ -532,6 +532,10 @@ class GeneratePopup(Popup):
         self.apworld_data = apworld_data  # List of GenericAlbum objects
         self._preview_ev = None
 
+    def included_albums(self):
+        """The selected subset carried forward into generation/preview."""
+        return [a for a in (self.apworld_data or []) if getattr(a, "_included", True)]
+
     def _schedule_preview(self, *args):
         """Debounce preview recomputes so typing in a numeric field doesn't
         rebuild the layout per keystroke."""
@@ -547,7 +551,7 @@ class GeneratePopup(Popup):
         is disabled it summarizes the real albums as-is."""
         if "meta_preview" not in self.ids:  # kv not built yet
             return
-        albums = self.apworld_data or []
+        albums = self.included_albums()
         cfg = self._read_meta_config()
         if cfg.get("enabled"):
             translated = {k: v for k, v in cfg.items() if k != "enabled"}
@@ -587,6 +591,9 @@ class GeneratePopup(Popup):
         app = App.get_running_app()
         if not apworld_name.strip():
             app.root.status_text = "Error: APWorld name cannot be empty."
+            return
+        if not self.included_albums():
+            app.root.status_text = "Error: select at least one album to generate."
             return
 
         meta_config = self._read_meta_config()
@@ -693,12 +700,16 @@ class GeneratePopup(Popup):
                 "archipelago.json.j2",
             ]
 
+            # Only the selected (included) albums are carried forward; excluded
+            # albums stay in the UI list but never reach the generated world.
+            source_albums = self.included_albums()
+
             # Optionally regroup tracks into randomized meta-albums at generate
             # time. effective_data drives BOTH the templates and the JSON catalog
             # so they stay consistent; the UI's real-album list is never mutated.
             if meta_config and meta_config.get("enabled"):
                 effective_data = build_meta_albums(
-                    self.apworld_data,
+                    source_albums,
                     mode=meta_config["mode"],
                     count=meta_config["count"],
                     seed=meta_config.get("seed"),
@@ -708,7 +719,7 @@ class GeneratePopup(Popup):
                     pack_size=meta_config.get("pack_size"),
                     target_minutes=meta_config.get("target_minutes"),
                 )
-                total = sum(len(a.tracks) for a in self.apworld_data)
+                total = sum(len(a.tracks) for a in source_albums)
                 used = sum(len(a.tracks) for a in effective_data)
                 Clock.schedule_once(
                     lambda dt: setattr(
@@ -718,7 +729,7 @@ class GeneratePopup(Popup):
                     )
                 )
             else:
-                effective_data = self.apworld_data
+                effective_data = source_albums
 
             # The context now uses the generic data models
             context = {
@@ -911,6 +922,21 @@ class CustomListItem(BoxLayout):
     # --- Derived action affordances (the kv binds a visible button to these) ---
     primary_label = StringProperty("")  # text of the row's main action button
     has_secondary = BooleanProperty(False)  # show the compact "..." menu (artists only)
+
+    # Whether this apworld album is carried forward into generation. Non-destructive:
+    # excluded albums stay in the list (greyed) but are skipped everywhere downstream.
+    # Set from the row's data dict on (re)bind; the include checkbox flips it on click.
+    included = BooleanProperty(True)
+
+    def toggle_included(self):
+        """User clicked the include checkbox. Flip the flag on the album (persisted
+        as a session attr) and let the container recompute the selected-only stats.
+        on_release only fires on real clicks, so no rebind feedback loop."""
+        new_val = not self.included
+        self.included = new_val  # immediate visual (checkbox glyph + row greying)
+        item = self.generic_item
+        if item is not None:
+            App.get_running_app().root.ids.list_container.set_album_included(item, new_val)
 
     def on_list_id(self, *_):
         self._refresh_actions()
@@ -1357,23 +1383,37 @@ class ListContainer(BoxLayout):
                     "text_line_4": f"~{mins} min" if mins else "",
                     "image_source": album.display_image_url or album.image_url or KIVY_ICON,
                     "list_id": "apworld",
+                    "included": getattr(album, "_included", True),
                     "generic_item": album,  # Pass the object itself for the 'Remove'/'Edit' action
                 }
             )
         self.list_two_data = visual_list
+        self._update_summary()
 
-        # Update the right-pane header summary + warn line from the pure corpus stats.
-        s = corpus_stats(self.apworld_data)
-        n_albums = s["n_albums"]
-        if not n_albums:
+    def included_albums(self):
+        """The albums carried forward into generation (the checked subset)."""
+        return [a for a in self.apworld_data if getattr(a, "_included", True)]
+
+    def _update_summary(self):
+        """Recompute the header summary + warn line over the *selected* albums only.
+        Split out so an include toggle can refresh the stats without rebuilding the
+        whole visual list."""
+        total_albums = len(self.apworld_data)
+        if not total_albums:
             self.apworld_summary = "Your APWorld — empty"
             self.apworld_warn = ""
             return
-        n_tracks = s["n_tracks"]
-        summary = (
-            f"Your APWorld — {n_albums} album{'s' if n_albums != 1 else ''} "
-            f"· {n_tracks} track{'s' if n_tracks != 1 else ''}"
+        included = self.included_albums()
+        n_excluded = total_albums - len(included)
+        s = corpus_stats(included)
+        n_albums, n_tracks = s["n_albums"], s["n_tracks"]
+        # "2 of 3 albums" when some are excluded, else just "3 albums".
+        albums_part = (
+            f"{n_albums} of {total_albums} albums"
+            if n_excluded
+            else f"{n_albums} album{'s' if n_albums != 1 else ''}"
         )
+        summary = f"Your APWorld — {albums_part} · {n_tracks} track{'s' if n_tracks != 1 else ''}"
         if s["total_ms"]:  # at least one known duration
             summary += (
                 f" · {format_hm(s['total_ms'])}"
@@ -1385,6 +1425,19 @@ class ListContainer(BoxLayout):
         self.apworld_warn = (
             f"· {n_unknown} unknown length{'s' if n_unknown != 1 else ''}" if n_unknown else ""
         )
+
+    def set_album_included(self, album, value):
+        """Persist an album's include flag and refresh the selected-only summary
+        (the row's greying/glyph already updated via the widget's `included`)."""
+        album._included = value
+        self._update_summary()
+
+    def select_all_albums(self, value):
+        """Include (value=True) or exclude (False) every album, then rebuild the
+        list so all checkboxes + greying reflect the change."""
+        for album in self.apworld_data:
+            album._included = value
+        self.refresh_apworld_view()
 
     def edit_album_tracks(self, album: GenericAlbum):
         """Open the track checklist for an already-added album. Non-lossy: shows the
