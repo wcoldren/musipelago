@@ -2240,6 +2240,7 @@ class MusipelagoClientApp(App):
     col_text = ColorProperty(theme.DARK["text"])
     col_text_dim = ColorProperty(theme.DARK["text_dim"])
     col_border = ColorProperty(theme.DARK["border"])
+    col_warn = ColorProperty(theme.DARK["warn"])
     # Stats panel width (reactive so the kv width binding + drag handle update live). The default
     # is a raw px placeholder; build() sets the dp-scaled default at runtime (dp() needs a window).
     stats_panel_width = NumericProperty(300)

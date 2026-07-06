@@ -90,7 +90,14 @@ from musipelago.backends import (
 from musipelago.plugin_loader import PluginManager
 
 # --- Local Imports ---
-from musipelago.utils import KIVY_ICON, filter_py_json, filter_to_ascii
+from musipelago.utils import (
+    KIVY_ICON,
+    corpus_stats,
+    filter_py_json,
+    filter_to_ascii,
+    format_hm,
+)
+from musipelago.utils_client import format_hms
 
 # Not necessary per se, but fixes PyInstaller build
 # import musipelago.client_ui_components
@@ -1164,8 +1171,13 @@ class ListContainer(BoxLayout):
     # This is the "source of truth" list, holding the full generic data
     apworld_data = ListProperty()  # List of GenericAlbum objects
 
-    # Header text for the right-hand pane, e.g. "Your APWorld — 5 albums · 73 tracks".
+    # Header text for the right-hand pane, e.g.
+    # "Your APWorld — 5 albums · 73 tracks · 3h 52m · avg 3:24 · range 0:31–19:47".
     apworld_summary = StringProperty("Your APWorld — empty")
+
+    # Second summary line (warning color) shown only when some tracks lack a probed
+    # duration, e.g. "· 4 unknown lengths". Empty string collapses it in the kv.
+    apworld_warn = StringProperty("")
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -1252,10 +1264,8 @@ class ListContainer(BoxLayout):
         (which doesn't change the list identity, so the binding won't fire)."""
         Logger.info("APWorld: Rebuilding right-side visual list.")
         visual_list = []
-        total_tracks = 0
         for album in self.apworld_data:
             n = len(album.tracks)
-            total_tracks += n
             mins = sum(t.duration_ms or 0 for t in album.tracks) // 60000
             visual_list.append(
                 {
@@ -1270,15 +1280,29 @@ class ListContainer(BoxLayout):
             )
         self.list_two_data = visual_list
 
-        # Update the right-pane header summary.
-        n_albums = len(self.apworld_data)
-        if n_albums:
-            self.apworld_summary = (
-                f"Your APWorld — {n_albums} album{'s' if n_albums != 1 else ''} "
-                f"· {total_tracks} track{'s' if total_tracks != 1 else ''}"
-            )
-        else:
+        # Update the right-pane header summary + warn line from the pure corpus stats.
+        s = corpus_stats(self.apworld_data)
+        n_albums = s["n_albums"]
+        if not n_albums:
             self.apworld_summary = "Your APWorld — empty"
+            self.apworld_warn = ""
+            return
+        n_tracks = s["n_tracks"]
+        summary = (
+            f"Your APWorld — {n_albums} album{'s' if n_albums != 1 else ''} "
+            f"· {n_tracks} track{'s' if n_tracks != 1 else ''}"
+        )
+        if s["total_ms"]:  # at least one known duration
+            summary += (
+                f" · {format_hm(s['total_ms'])}"
+                f" · avg {format_hms(s['mean_ms'])}"
+                f" · range {format_hms(s['min_ms'])}–{format_hms(s['max_ms'])}"
+            )
+        self.apworld_summary = summary
+        n_unknown = s["n_unknown"]
+        self.apworld_warn = (
+            f"· {n_unknown} unknown length{'s' if n_unknown != 1 else ''}" if n_unknown else ""
+        )
 
     def edit_album_tracks(self, album: GenericAlbum):
         """Open the track checklist for an already-added album. Non-lossy: shows the
@@ -1630,6 +1654,7 @@ class MusipelagoAPWGenApp(App):
     col_text = ColorProperty(theme.DARK["text"])
     col_text_dim = ColorProperty(theme.DARK["text_dim"])
     col_border = ColorProperty(theme.DARK["border"])
+    col_warn = ColorProperty(theme.DARK["warn"])
 
     def build(self):
         self.backend = None

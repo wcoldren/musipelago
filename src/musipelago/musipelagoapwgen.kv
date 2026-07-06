@@ -144,6 +144,19 @@
             valign: 'middle'
             text_size: self.size
 
+        # Second summary line: shown (warning color) only when some tracks lack a
+        # probed duration; collapses to zero height when apworld_warn is empty.
+        Label:
+            text: root.apworld_warn
+            color: app.col_warn
+            font_size: '12sp'
+            size_hint_y: None
+            height: dp(18) if root.apworld_warn else 0
+            opacity: 1 if root.apworld_warn else 0
+            halign: 'left'
+            valign: 'middle'
+            text_size: self.size
+
         FloatLayout:
             RecycleView:
                 data: root.list_two_data

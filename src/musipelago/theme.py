@@ -12,10 +12,11 @@ Each palette is a dict of named RGBA 4-tuples (floats 0..1):
   text      primary text
   text_dim  secondary / helper text
   border    subtle separators / outlines
+  warn      warnings / non-fatal caveats (e.g. tracks with unknown duration)
 """
 
 # Ordered so callers can validate every palette exposes the same keys.
-KEYS = ("bg", "surface", "card", "accent", "text", "text_dim", "border")
+KEYS = ("bg", "surface", "card", "accent", "text", "text_dim", "border", "warn")
 
 DARK = {
     "bg": (0.10, 0.10, 0.12, 1),
@@ -25,6 +26,7 @@ DARK = {
     "text": (0.95, 0.95, 0.96, 1),
     "text_dim": (0.70, 0.70, 0.73, 1),
     "border": (0.28, 0.28, 0.32, 1),
+    "warn": (0.95, 0.70, 0.25, 1),  # amber, readable on the dark bg
 }
 
 LIGHT = {
@@ -35,6 +37,7 @@ LIGHT = {
     "text": (0.10, 0.10, 0.12, 1),
     "text_dim": (0.26, 0.26, 0.30, 1),  # darkened: 0.38 was too faint on the light bg
     "border": (0.80, 0.80, 0.84, 1),
+    "warn": (0.72, 0.45, 0.05, 1),  # darker amber for contrast on the light bg
 }
 
 PALETTES = {"dark": DARK, "light": LIGHT}

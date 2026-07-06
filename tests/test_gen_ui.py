@@ -181,16 +181,50 @@ def test_on_primary_dispatches_to_menu_action(monkeypatch):
         assert recorded == [expected], (list_id, recorded)
 
 
-# --- ListContainer summary ------------------------------------------------
+# --- ListContainer summary + stats strip ----------------------------------
 
 
-def test_apworld_summary_formats_albums_and_tracks():
-    stub = types.SimpleNamespace(list_two_data=[], apworld_summary="", apworld_data=[])
+def _summary_stub(albums):
+    stub = types.SimpleNamespace(
+        list_two_data=[], apworld_summary="", apworld_warn="", apworld_data=albums
+    )
     stub.refresh_apworld_view = types.MethodType(g.ListContainer.refresh_apworld_view, stub)
+    return stub
 
-    stub.apworld_data = [_album("a", 3), _album("b", 2)]
+
+def _album_durs(uri, durs):
+    """A GenericAlbum with one track per entry in ``durs`` (its duration_ms)."""
+    tr = [
+        GenericTrack(
+            uri=f"{uri}/{i}",
+            title=f"t{i}",
+            artist="A",
+            album_title=uri,
+            duration_ms=d,
+            service="local",
+        )
+        for i, d in enumerate(durs)
+    ]
+    return GenericAlbum(
+        uri=uri,
+        title=uri,
+        artist="A",
+        image_url="",
+        total_tracks=len(tr),
+        album_type="Album",
+        service="local",
+        tracks=tr,
+    )
+
+
+def test_apworld_summary_formats_albums_tracks_and_durations():
+    # _album() tracks are 180000ms (3:00) each -> 5 tracks = 15m total, avg/range 3:00.
+    stub = _summary_stub([_album("a", 3), _album("b", 2)])
     stub.refresh_apworld_view()
-    assert stub.apworld_summary == "Your APWorld — 2 albums · 5 tracks"
+    assert stub.apworld_summary == (
+        "Your APWorld — 2 albums · 5 tracks · 15m · avg 03:00 · range 03:00–03:00"
+    )
+    assert stub.apworld_warn == ""
     assert len(stub.list_two_data) == 2
     # raw URI is no longer surfaced; line 4 is a duration, not the uri
     assert all(row["text_line_4"] != row["generic_item"].uri for row in stub.list_two_data)
@@ -198,15 +232,43 @@ def test_apworld_summary_formats_albums_and_tracks():
     stub.apworld_data = []
     stub.refresh_apworld_view()
     assert stub.apworld_summary == "Your APWorld — empty"
+    assert stub.apworld_warn == ""
 
 
 def test_apworld_summary_singular_grammar():
-    stub = types.SimpleNamespace(
-        list_two_data=[], apworld_summary="", apworld_data=[_album("solo", 1)]
-    )
-    stub.refresh_apworld_view = types.MethodType(g.ListContainer.refresh_apworld_view, stub)
+    stub = _summary_stub([_album_durs("solo", [180000])])
     stub.refresh_apworld_view()
-    assert stub.apworld_summary == "Your APWorld — 1 album · 1 track"
+    assert stub.apworld_summary == (
+        "Your APWorld — 1 album · 1 track · 3m · avg 03:00 · range 03:00–03:00"
+    )
+    assert stub.apworld_warn == ""
+
+
+def test_apworld_summary_mixed_durations_and_range():
+    # known: 31s, 3:24, 19:47; total 23:42 -> 23m; range 00:31–19:47.
+    stub = _summary_stub([_album_durs("a", [31_000, 204_000, 1_187_000])])
+    stub.refresh_apworld_view()
+    assert stub.apworld_summary == (
+        "Your APWorld — 1 album · 3 tracks · 23m · avg 07:54 · range 00:31–19:47"
+    )
+    assert stub.apworld_warn == ""
+
+
+def test_apworld_warn_counts_unknown_and_excludes_them_from_stats():
+    # one known (3:00) + one unknown (0): duration stats reflect only the known track.
+    stub = _summary_stub([_album_durs("a", [180000, 0])])
+    stub.refresh_apworld_view()
+    assert "· 2 tracks ·" in stub.apworld_summary
+    assert "avg 03:00" in stub.apworld_summary
+    assert stub.apworld_warn == "· 1 unknown length"
+
+
+def test_apworld_warn_plural_and_all_unknown_omits_duration_stats():
+    stub = _summary_stub([_album_durs("a", [0, 0]), _album_durs("b", [None])])
+    stub.refresh_apworld_view()
+    # no known durations -> summary stops after the track count.
+    assert stub.apworld_summary == "Your APWorld — 2 albums · 3 tracks"
+    assert stub.apworld_warn == "· 3 unknown lengths"
 
 
 # --- gen_settings persistence (theme + last_directory coexist) -------------
